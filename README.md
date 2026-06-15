@@ -191,6 +191,13 @@ Un interpréteur complet du langage GWBASIC implémenté en JavaScript avec une 
 30 DATA 10, 20, 30
 ```
 
+## Changements récents
+
+### v1.0.1 - Correction bug GOSUB/REM
+- **Bug** : `GOSUB` ou `GOTO` vers un numéro de ligne correspondant à une instruction `REM` (ignorée dans l'AST) provoquait une boucle infinie, car `getTargetPc()` retournait 0 quand la ligne n'était pas trouvée.
+- **Correctif** : `getTargetPc()` cherche désormais la ligne disponible la plus proche (≥ le numéro demandé), et lève une erreur explicite si aucune ligne n'existe.
+- **Tests ajoutés** : 8 nouveaux cas dans `bug-repro.test.ts` couvrant GOSUB, REM, GOTO, FOR imbriqué et programme complet avec sous-routines.
+
 ## Limitations et notes
 
 ### Limitations intentionnelles

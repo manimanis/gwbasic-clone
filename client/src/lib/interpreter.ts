@@ -287,8 +287,19 @@ export class GWBASICInterpreter {
   private getTargetPc(label: number): number {
     const target = this.labels.get(label);
     if (target !== undefined) return target;
-    if (label > 0 && label <= this.statements.length) return label - 1;
-    return 0;
+    // Find the nearest label >= target (for REM statements that don't produce AST nodes)
+    let nearest = -1;
+    this.labels.forEach((idx, line) => {
+      if (line >= label) {
+        if (nearest === -1 || line < nearest) {
+          nearest = line;
+        }
+      }
+    });
+    if (nearest !== -1) {
+      return this.labels.get(nearest)!;
+    }
+    throw new Error(`Line ${label} not found`);
   }
 
   private async executeStatement(stmt: Statement): Promise<void> {
