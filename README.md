@@ -42,6 +42,15 @@ Un interpréteur complet du langage GWBASIC implémenté en JavaScript avec une 
 - `MKD$`, `MKI$`, `MKS$` (conversion en chaînes binaires)
 - `CVD`, `CVI`, `CVS` (conversion depuis chaînes binaires)
 
+#### Fonctions de dates
+- `MKDATE([year [, month [, day [, hours [, minutes [, seconds]]]]]])` — crée un timestamp (secondes)
+- `YEAR(date)`, `MONTH(date)`, `DAY(date)` — extraction de composantes
+- `DAYW(date)` — jour de la semaine (0=Dimanche)
+- `HOUR(date)`, `MINUTE(date)`, `SECONDS(date)` — heure/minute/seconde
+- `DATESTR$(date)` — convertit un timestamp en chaîne ISO `"YYYY-MM-DD HH:mm:ss"`
+- `TODATE(string$)` — convertit une chaîne ISO en timestamp
+- **Arithmétique des dates** : `date - date` (différence en secondes), `date + N` (ajouter N secondes), `date - N` (soustraire N secondes)
+
 #### Fonctions système
 - `TIMER`, `DATE$`, `TIME$`
 - `RANDOMIZE`, `RND`
@@ -96,6 +105,7 @@ Un interpréteur complet du langage GWBASIC implémenté en JavaScript avec une 
 ### Types de données
 - **Nombres** : Nombres à virgule flottante (64-bit)
 - **Chaînes** : Chaînes de caractères (suffixe `$`)
+- **Dates** : Timestamps en secondes (nombres), avec conversion ISO via `DATESTR$`/`TODATE`
 - **Tableaux** : Tableaux multi-dimensionnels (déclarés avec `DIM`)
 
 ## Interface utilisateur
@@ -173,6 +183,17 @@ Un interpréteur complet du langage GWBASIC implémenté en JavaScript avec une 
 40 PRINT "ARRPROCH(17, 5, 0) = "; ARRPROCH(17, 5, 0)
 ```
 
+### Dates et horodatage
+```basic
+10 D = MKDATE(2025, 12, 25, 8, 30, 0)
+20 PRINT YEAR(D); "-"; MONTH(D); "-"; DAY(D)
+30 PRINT DATESTR$(D)
+40 D2 = D + 86400
+50 PRINT "Demain: "; DATESTR$(D2)
+60 D3 = TODATE("2025-06-15 10:30:00")
+70 PRINT "Différence: "; D3 - D; " secondes"
+```
+
 ### Tableaux
 ```basic
 10 DIM A(5)
@@ -193,9 +214,17 @@ Un interpréteur complet du langage GWBASIC implémenté en JavaScript avec une 
 
 ## Changements récents
 
+### v1.1.0 - Fonctions de dates
+- **Nouveau** : `MKDATE` — crée un timestamp (secondes) avec des paramètres optionnels
+- **Nouveau** : `YEAR`, `MONTH`, `DAY`, `DAYW`, `HOUR`, `MINUTE`, `SECONDS` — extraction de composantes
+- **Nouveau** : `DATESTR$` — conversion timestamp vers chaîne ISO `"YYYY-MM-DD HH:mm:ss"`
+- **Nouveau** : `TODATE` — conversion chaîne ISO vers timestamp
+- **Nouveau** : Arithmétique des dates (`date - date`, `date + N`, `date - N`)
+- **Tests** : 27 tests dans `date-functions.test.ts`
+
 ### v1.0.1 - Correction bug GOSUB/REM
 - **Bug** : `GOSUB` ou `GOTO` vers un numéro de ligne correspondant à une instruction `REM` (ignorée dans l'AST) provoquait une boucle infinie, car `getTargetPc()` retournait 0 quand la ligne n'était pas trouvée.
-- **Correctif** : `getTargetPc()` cherche désormais la ligne disponible la plus proche (≥ le numéro demandé), et lève une erreur explicite si aucune ligne n'existe.
+- **Correctif** : `getTargetPc()` lève désormais une erreur explicite si la ligne cible n'existe pas. Les instructions `REM` sont désormais correctement tokenisées et parsées.
 - **Tests ajoutés** : 8 nouveaux cas dans `bug-repro.test.ts` couvrant GOSUB, REM, GOTO, FOR imbriqué et programme complet avec sous-routines.
 
 ## Limitations et notes

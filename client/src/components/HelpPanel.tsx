@@ -12,7 +12,7 @@ interface HelpPanelProps {
 }
 
 export const HelpPanel: React.FC<HelpPanelProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'intro' | 'statements' | 'functions' | 'operators' | 'tips'>('intro');
+  const [activeTab, setActiveTab] = useState<'intro' | 'statements' | 'functions' | 'dates' | 'operators' | 'tips'>('intro');
 
   if (!isOpen) return null;
 
@@ -84,7 +84,7 @@ export const HelpPanel: React.FC<HelpPanelProps> = ({ isOpen, onClose }) => {
             backgroundColor: '#0A0A0A',
           }}
         >
-          {(['intro', 'statements', 'functions', 'operators', 'tips'] as const).map((tab) => (
+          {(['intro', 'statements', 'functions', 'dates', 'operators', 'tips'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -136,6 +136,17 @@ export const HelpPanel: React.FC<HelpPanelProps> = ({ isOpen, onClose }) => {
           {activeTab === 'functions' && (
             <div>
               {Object.entries(HELP.functions).map(([key, value]) => (
+                <div key={key} style={{ marginBottom: '12px' }}>
+                  <div style={{ color: '#FFAA00', fontWeight: 'bold' }}>{key}</div>
+                  <div>{value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeTab === 'dates' && (
+            <div>
+              {Object.entries(HELP.dateFunctions).map(([key, value]) => (
                 <div key={key} style={{ marginBottom: '12px' }}>
                   <div style={{ color: '#FFAA00', fontWeight: 'bold' }}>{key}</div>
                   <div>{value}</div>

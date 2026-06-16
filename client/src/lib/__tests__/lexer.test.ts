@@ -49,9 +49,12 @@ describe('Lexer', () => {
   it('handles REM comments', () => {
     const lexer = new Lexer('REM This is a comment\nPRINT 5');
     const tokens = lexer.tokenize();
-    // REM should be skipped, only PRINT 5 should be tokenized
-    expect(tokens[0].type).toBe(TokenType.NEWLINE);
-    expect(tokens[1].type).toBe(TokenType.PRINT);
-    expect(tokens[2].type).toBe(TokenType.NUMBER);
+    // REM is tokenized as a keyword; comment text tokens follow, then NEWLINE, PRINT, NUMBER
+    expect(tokens[0].type).toBe(TokenType.REM);
+    // "This", "is", "a", "comment" are tokenized as identifiers
+    const newlineIdx = tokens.findIndex(t => t.type === TokenType.NEWLINE);
+    expect(newlineIdx).toBeGreaterThan(0);
+    expect(tokens[newlineIdx + 1].type).toBe(TokenType.PRINT);
+    expect(tokens[newlineIdx + 2].type).toBe(TokenType.NUMBER);
   });
 });

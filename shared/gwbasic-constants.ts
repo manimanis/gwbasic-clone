@@ -27,8 +27,10 @@ export const GWBASIC_FUNCTIONS = [
   'PEEK', 'FRE', 'ERL', 'ERR', 'FREEFILE', 'PMAP', 'LOF',
   'MIN', 'MAX', 'MOYAR', 'MOYPO', 'ARRPROCH', 'CEIL', 'FLOOR',
   'SUM', 'PROD', 'MEDIAN', 'STD',
+  'MKDATE', 'YEAR', 'MONTH', 'DAY', 'DAYW', 'HOUR', 'MINUTE', 'SECONDS',
+  'DATESTR$', 'TODATE',
 ];
 
-export const GWBASIC_NOARG_FUNCTIONS = ['RND', 'TIMER', 'DATE$', 'TIME$', 'INKEY$', 'PEEK', 'FRE', 'POS', 'CSRLIN', 'ERL', 'ERR'];
+  export const GWBASIC_NOARG_FUNCTIONS = ['RND', 'TIMER', 'DATE$', 'TIME$', 'INKEY$', 'PEEK', 'FRE', 'POS', 'CSRLIN', 'ERL', 'ERR', 'MKDATE', 'DATESTR$'];
 
 export const GWBASIC_GOTO_LIKE_KEYWORDS = ['GOTO', 'GOSUB'];

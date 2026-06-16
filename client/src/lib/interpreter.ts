@@ -287,18 +287,6 @@ export class GWBASICInterpreter {
   private getTargetPc(label: number): number {
     const target = this.labels.get(label);
     if (target !== undefined) return target;
-    // Find the nearest label >= target (for REM statements that don't produce AST nodes)
-    let nearest = -1;
-    this.labels.forEach((idx, line) => {
-      if (line >= label) {
-        if (nearest === -1 || line < nearest) {
-          nearest = line;
-        }
-      }
-    });
-    if (nearest !== -1) {
-      return this.labels.get(nearest)!;
-    }
     throw new Error(`Line ${label} not found`);
   }
 
@@ -1048,6 +1036,61 @@ export class GWBASICInterpreter {
           return { type: 'number', value: Math.floor(value / multiple) * multiple };
         }
       }
+      case 'MKDATE': {
+        const now = new Date();
+        const year = args.length >= 1 ? Math.floor(this.toNumber(args[0])) : now.getFullYear();
+        const month = args.length >= 2 ? Math.floor(this.toNumber(args[1])) : now.getMonth() + 1;
+        const day = args.length >= 3 ? Math.floor(this.toNumber(args[2])) : now.getDate();
+        const hours = args.length >= 4 ? Math.floor(this.toNumber(args[3])) : now.getHours();
+        const minutes = args.length >= 5 ? Math.floor(this.toNumber(args[4])) : now.getMinutes();
+        const seconds = args.length >= 6 ? Math.floor(this.toNumber(args[5])) : now.getSeconds();
+        const d = new Date(year, month - 1, day, hours, minutes, seconds);
+        // Return timestamp in seconds so that date - date gives seconds
+        return { type: 'number', value: Math.floor(d.getTime() / 1000) };
+      }
+      case 'YEAR': {
+        const d = this.parseDateArg(args, 0);
+        return { type: 'number', value: d.getFullYear() };
+      }
+      case 'MONTH': {
+        const d = this.parseDateArg(args, 0);
+        return { type: 'number', value: d.getMonth() + 1 };
+      }
+      case 'DAY': {
+        const d = this.parseDateArg(args, 0);
+        return { type: 'number', value: d.getDate() };
+      }
+      case 'DAYW': {
+        const d = this.parseDateArg(args, 0);
+        return { type: 'number', value: d.getDay() };
+      }
+      case 'HOUR': {
+        const d = this.parseDateArg(args, 0);
+        return { type: 'number', value: d.getHours() };
+      }
+      case 'MINUTE': {
+        const d = this.parseDateArg(args, 0);
+        return { type: 'number', value: d.getMinutes() };
+      }
+      case 'SECONDS': {
+        const d = this.parseDateArg(args, 0);
+        return { type: 'number', value: d.getSeconds() };
+      }
+      case 'DATESTR$': {
+        const d = this.parseDateArg(args, 0);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        return { type: 'string', value: dateStr };
+      }
+      case 'TODATE': {
+        const dateStr = this.getStringArg(args, 0);
+        // Parse "YYYY-MM-DD HH:mm:ss" format
+        const match = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
+        if (!match) throw new Error(`Invalid date string: ${dateStr}`);
+        const [, y, m, d, h, min, s] = match;
+        const date = new Date(parseInt(y), parseInt(m) - 1, parseInt(d), parseInt(h), parseInt(min), parseInt(s));
+        return { type: 'number', value: Math.floor(date.getTime() / 1000) };
+      }
       default:
         if (name.startsWith('FN_')) {
           const funcDef = this.variables.get(name);
@@ -1065,6 +1108,27 @@ export class GWBASICInterpreter {
         }
         throw new Error(`Unknown function: ${name}`);
     }
+  }
+
+  /** Parse a date from a RuntimeValue — accepts a timestamp in seconds (from MKDATE) or date string */
+  private parseDateArg(args: RuntimeValue[], index: number): Date {
+    if (index >= args.length) return new Date();
+    const val = args[index];
+    // Timestamp in seconds — MKDATE returns seconds since epoch
+    if (val.type === 'number') {
+      return new Date((val.value as number) * 1000);
+    }
+    // String — try "YYYY-MM-DD HH:MM:SS" format
+    const dateStr = this.valueToString(val);
+    const match = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
+    if (match) {
+      const [, y, m, d, h, min, s] = match;
+      return new Date(parseInt(y), parseInt(m) - 1, parseInt(d), parseInt(h), parseInt(min), parseInt(s));
+    }
+    // Fallback: try native Date parsing
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) return parsed;
+    throw new Error(`Invalid date: ${dateStr}`);
   }
 
   private evaluateArrayAccess(expr: ArrayAccess): RuntimeValue {

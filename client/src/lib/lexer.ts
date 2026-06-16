@@ -159,8 +159,8 @@ export class Lexer {
       const line = this.line;
       const column = this.column;
 
-      // Comments
-      if (this.currentChar() === "'" || (this.currentChar() === 'R' && this.peekChar() === 'E' && this.peekChar(2) === 'M')) {
+      // Comments (single quote)
+      if (this.currentChar() === "'") {
         while (this.currentChar() !== '\n' && this.currentChar() !== '\0') {
           this.advance();
         }

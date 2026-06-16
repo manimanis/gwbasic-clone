@@ -411,6 +411,62 @@ Returns the current time as "HH:MM:SS"
 Example: PRINT TIME$`,
   },
 
+  dateFunctions: {
+    MKDATE: `MKDATE([year [, month [, day [, hours [, minutes [, seconds]]]]]]) - Create date timestamp
+Returns a timestamp in seconds. All parameters are optional; omitted values default to the system date/time.
+  MKDATE()          → system date/time
+  MKDATE(2025)      → 2025 + system month/day/time
+  MKDATE(2025, 4)   → 2025-04 + system day/time
+  MKDATE(2025, 4, 15, 10, 30, 55) → full date
+Example: D = MKDATE(2025, 12, 25, 8, 30, 0)`,
+
+    YEAR: `YEAR(date) - Extract year from date
+Returns the year from a date timestamp.
+Example: PRINT YEAR(MKDATE(2025, 8, 25))  ' Output: 2025`,
+
+    MONTH: `MONTH(date) - Extract month from date
+Returns the month (1-12) from a date timestamp.
+Example: PRINT MONTH(MKDATE(2025, 8, 25))  ' Output: 8`,
+
+    DAY: `DAY(date) - Extract day from date
+Returns the day of the month (1-31) from a date timestamp.
+Example: PRINT DAY(MKDATE(2025, 8, 25))  ' Output: 25`,
+
+    DAYW: `DAYW(date) - Day of week
+Returns the day of week (0=Sunday, 1=Monday, ..., 6=Saturday).
+Example: PRINT DAYW(MKDATE(2025, 8, 25))  ' Output: 0 (Sunday)`,
+
+    HOUR: `HOUR(date) - Extract hour from date
+Returns the hour (0-23) from a date timestamp.
+Example: PRINT HOUR(MKDATE(2025, 8, 25, 14, 30, 45))  ' Output: 14`,
+
+    MINUTE: `MINUTE(date) - Extract minute from date
+Returns the minute (0-59) from a date timestamp.
+Example: PRINT MINUTE(MKDATE(2025, 8, 25, 14, 30, 45))  ' Output: 30`,
+
+    SECONDS: `SECONDS(date) - Extract seconds from date
+Returns the seconds (0-59) from a date timestamp.
+Example: PRINT SECONDS(MKDATE(2025, 8, 25, 14, 30, 45))  ' Output: 45`,
+
+    'DATESTR$': `DATESTR$(date) - Date to ISO string
+Converts a date timestamp to an ISO string "YYYY-MM-DD HH:mm:ss".
+Example: PRINT DATESTR$(MKDATE(2025, 8, 5, 9, 4, 7))  ' Output: 2025-08-05 09:04:07`,
+
+    TODATE: `TODATE(string) - ISO string to date
+Converts an ISO string "YYYY-MM-DD HH:mm:ss" to a date timestamp.
+Example: D = TODATE("2025-12-25 08:30:15")`,
+
+    dateArithmetic: `Date Arithmetic:
+  date - date     → difference in seconds
+  date + number   → date + N seconds
+  date - number   → date - N seconds
+Examples:
+  D1 = MKDATE(2025, 1, 1)
+  D2 = MKDATE(2025, 1, 2)
+  PRINT D2 - D1     ' Output: 86400 (one day in seconds)
+  D3 = D1 + 3600    ' Add one hour`,
+  },
+
   operators: {
     arithmetic: `
 Arithmetic Operators:
