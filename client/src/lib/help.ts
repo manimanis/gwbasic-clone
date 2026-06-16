@@ -4,7 +4,7 @@
  */
 
 export const HELP = {
-  introduction: `
+introduction: `
 GWBASIC Interpreter - Complete Reference
 
 This is a functional GWBASIC interpreter implemented in JavaScript.
@@ -26,6 +26,11 @@ EXAMPLE:
 30 PRINT I
 40 NEXT I
 50 END
+
+DEVELOPMENT TOOLS:
+- LINTER: Static analysis with real-time error detection (E001-E040, W001-W004)
+- RENUMBER (F6): Reorganize line numbers automatically
+- AUTO-FIX: Fix keyword casing and indentation (TOOLS > AUTO-FIX)
 `,
 
   statements: {
@@ -248,6 +253,19 @@ Returns tangent of x (in radians)`,
     ATN: `ATN(x) - Arctangent function
 Returns arctangent of x (in radians)`,
 
+    ATAN2: `ATAN2(y, x) - Two-argument arctangent
+Returns the angle (in radians) between the positive x-axis and the point (x, y).
+Range: -PI to +PI
+Example: PRINT ATAN2(1, 1)  ' Output: ~0.785 (PI/4)`,
+
+    DEGTORAD: `DEGTORAD(deg) - Convert degrees to radians
+Returns the angle in radians.
+Example: PRINT DEGTORAD(180)  ' Output: ~3.14159`,
+
+    RADTODEG: `RADTODEG(rad) - Convert radians to degrees
+Returns the angle in degrees.
+Example: PRINT RADTODEG(PI)  ' Output: 180`,
+
     EXP: `EXP(x) - Exponential function
 Returns e^x`,
 
@@ -398,6 +416,10 @@ Example: PRINT ARRPROCH(17, 5)       ' Output: 20
 Example: PRINT ARRPROCH(17, 5, 0)   ' Output: 15
 Example: PRINT ARRPROCH(12.33, 0.25)  ' Output: 12.5`,
 
+    PI: `PI - Constant PI (3.14159...)
+Value of Pi.
+Example: PRINT PI  ' Output: 3.14159265358979`,
+
     TIMER: `TIMER - Seconds since midnight
 Returns the number of seconds since midnight
 Example: PRINT TIMER`,
@@ -541,6 +563,18 @@ TIPS AND TRICKS:
 10. User Functions:
     - DEF FN DOUBLE(X) = X * 2
     - PRINT FN DOUBLE(5)  ' Output: 10
+
+11. Development Tools:
+    - Click TOOLS for Linter, Renumber, and Auto-fix
+    - Linter shows errors in real-time as you type
+    - Renumber reorganizes line numbers (10, 20, 30...)
+    - Auto-fix corrects keyword casing and indentation
+
+12. Trigonometry:
+    - Use DEGTORAD() to convert degrees to radians
+    - Use RADTODEG() to convert radians to degrees
+    - ATAN2(y, x) returns angle from -PI to +PI
+    - PI constant available for calculations
 `,
 };
 

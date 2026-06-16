@@ -869,6 +869,9 @@ export class GWBASICInterpreter {
       case 'COS': return { type: 'number', value: Math.cos(this.getNumericArg(args, 0)) };
       case 'TAN': return { type: 'number', value: Math.tan(this.getNumericArg(args, 0)) };
       case 'ATN': return { type: 'number', value: Math.atan(this.getNumericArg(args, 0)) };
+      case 'ATAN2': return { type: 'number', value: Math.atan2(this.getNumericArg(args, 0), this.getNumericArg(args, 1)) };
+      case 'DEGTORAD': return { type: 'number', value: this.getNumericArg(args, 0) * (Math.PI / 180) };
+      case 'RADTODEG': return { type: 'number', value: this.getNumericArg(args, 0) * (180 / Math.PI) };
       case 'EXP': return { type: 'number', value: Math.exp(this.getNumericArg(args, 0)) };
       case 'LOG': return { type: 'number', value: Math.log(this.getNumericArg(args, 0)) };
       case 'SQR': return { type: 'number', value: Math.sqrt(this.getNumericArg(args, 0)) };

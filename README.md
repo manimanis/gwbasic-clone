@@ -10,12 +10,15 @@ Un interpréteur complet du langage GWBASIC implémenté en JavaScript avec une 
 - **Moteur d'exécution** : Interprétation directe du programme avec gestion d'état complète
 - **Interface rétro** : Terminal vert phosphore sur fond noir avec scanlines animées
 
-### Fonctions supportées (90+)
+### Fonctions supportées (95+)
 
 #### Fonctions mathématiques
-- `ABS`, `SIN`, `COS`, `TAN`, `ATN`, `EXP`, `LOG`, `SQR`
+- `ABS`, `SIN`, `COS`, `TAN`, `ATN`, `ATAN2`, `EXP`, `LOG`, `SQR`
 - `INT`, `FIX`, `SGN`, `RND`, `CINT`, `CDBL`, `CSNG`
 - `CEIL`, `FLOOR`
+- `DEGTORAD(deg)` — conversion degrés → radians
+- `RADTODEG(rad)` — conversion radians → degrés
+- `PI` — constante π (3.14159...)
 
 #### Fonctions statistiques
 - `MIN`, `MAX` — valeurs extrêmes (variadiques)
@@ -120,6 +123,9 @@ Un interpréteur complet du langage GWBASIC implémenté en JavaScript avec une 
 - **Exemples intégrés** : Programmes d'exemple pour débuter
 - **Aide interactive** : Référence complète du langage (200+ lignes de documentation)
 - **Gestion des entrées** : Support complet de `INPUT`, `LINE INPUT`, `LOCATE`, `COLOR`
+- **Linter intégré** : Analyse statique du code avec détection d'erreurs en temps réel
+- **Renumérotation** : Réorganisation automatique des numéros de ligne (F6)
+- **Auto-fix** : Correction automatique de la casse des mots-clés et indentation
 
 ## Exemples de programmes
 
@@ -194,6 +200,25 @@ Un interpréteur complet du langage GWBASIC implémenté en JavaScript avec une 
 70 PRINT "Différence: "; D3 - D; " secondes"
 ```
 
+### Sous-routines GOSUB
+```basic
+10 PRINT "Programme principal"
+20 GOSUB 100
+30 PRINT "Retour au programme"
+40 END
+100 PRINT "  Sous-routine appelee"
+110 RETURN
+```
+
+### Fonctions trigonométriques avec conversion
+```basic
+10 A = 45
+20 PRINT "Angle: "; A; " degres"
+30 PRINT "En radians: "; DEGTORAD(A)
+40 PRINT "SIN: "; SIN(DEGTORAD(A))
+50 PRINT "En degres: "; RADTODEG(ATAN2(1, 1))
+```
+
 ### Tableaux
 ```basic
 10 DIM A(5)
@@ -213,6 +238,16 @@ Un interpréteur complet du langage GWBASIC implémenté en JavaScript avec une 
 ```
 
 ## Changements récents
+
+### v1.2.0 - Outils de développement
+- **Nouveau** : `ATAN2(y, x)` — fonction arctangente à deux arguments (range -π à +π)
+- **Nouveau** : `DEGTORAD(deg)` — conversion degrés vers radians
+- **Nouveau** : `RADTODEG(rad)` — conversion radians vers degrés
+- **Nouveau** : `PI` — constante π
+- **Nouveau** : Linter intégré — analyse statique en temps réel avec codes d'erreur (E001-E040, W001-W004)
+- **Nouveau** : Renumérotation — réorganisation des numéros de ligne (F6)
+- **Nouveau** : Auto-fix — correction automatique de la casse et indentation (TOOLS > AUTO-FIX)
+- **Nouveau** : GOSUB/RETURN — sous-routines supportées avec exemple intégré
 
 ### v1.1.0 - Fonctions de dates
 - **Nouveau** : `MKDATE` — crée un timestamp (secondes) avec des paramètres optionnels

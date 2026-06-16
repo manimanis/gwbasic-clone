@@ -17,7 +17,7 @@ export const GWBASIC_KEYWORDS = [
 ];
 
 export const GWBASIC_FUNCTIONS = [
-  'ABS', 'SIN', 'COS', 'TAN', 'ATN', 'EXP', 'LOG', 'SQR', 'INT', 'FIX', 'SGN',
+  'ABS', 'SIN', 'COS', 'TAN', 'ATN', 'ATAN2', 'EXP', 'LOG', 'SQR', 'INT', 'FIX', 'SGN',
   'RND', 'CINT', 'CDBL', 'CSNG', 'LEN', 'ASC', 'CHR$', 'STR$', 'VAL', 'LEFT$',
   'RIGHT$', 'MID$', 'INSTR', 'UPPER$', 'LOWER$', 'SPACE$', 'STRING$', 'HEX$',
   'OCT$', 'TRIM$', 'LTRIM$', 'RTRIM$', 'REPEAT$', 'REVERSE$',
@@ -28,7 +28,7 @@ export const GWBASIC_FUNCTIONS = [
   'MIN', 'MAX', 'MOYAR', 'MOYPO', 'ARRPROCH', 'CEIL', 'FLOOR',
   'SUM', 'PROD', 'MEDIAN', 'STD',
   'MKDATE', 'YEAR', 'MONTH', 'DAY', 'DAYW', 'HOUR', 'MINUTE', 'SECONDS',
-  'DATESTR$', 'TODATE',
+  'DATESTR$', 'TODATE', 'DEGTORAD', 'RADTODEG',
 ];
 
   export const GWBASIC_NOARG_FUNCTIONS = ['RND', 'TIMER', 'DATE$', 'TIME$', 'INKEY$', 'PEEK', 'FRE', 'POS', 'CSRLIN', 'ERL', 'ERR', 'MKDATE', 'DATESTR$'];

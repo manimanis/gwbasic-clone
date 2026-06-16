@@ -10,6 +10,9 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Lexer, Parser, GWBASICInterpreter, TerminalCell } from '@/lib/gwbasic-interpreter';
 import { EXAMPLES } from '@/lib/examples';
+import { renumber, sortAndRenumber } from '@/lib/renumber';
+import { lint, type LintResult, type LintWarning } from '@/lib/linter';
+import { autoFix } from '@/lib/autofix';
 import Editor from '@/components/Editor';
 import Terminal from '@/components/Terminal';
 import HelpPanel from '@/components/HelpPanel';
@@ -21,25 +24,56 @@ interface InputRequest {
   resolve: (value: string) => void;
 }
 
+/** Small helper for tools dropdown items */
+function ToolsMenuItem({ label, onClick, accent }: { label: string; onClick: () => void; accent?: boolean }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: '100%',
+        textAlign: 'left',
+        backgroundColor: hover ? '#003300' : (accent ? '#1A1A00' : '#001A00'),
+        color: hover ? '#00FF00' : (accent ? '#FFAA00' : '#00FF00'),
+        border: 'none',
+        borderBottom: '1px solid #002200',
+        padding: '10px 14px',
+        fontFamily: '"IBM Plex Mono", monospace',
+        fontSize: '13px',
+        cursor: 'pointer',
+        transition: 'all 0.1s',
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function Home() {
   const [code, setCode] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      return saved || `10 PRINT "Welcome to GWBASIC Interpreter!"
-20 PRINT "Type your program and click RUN"
-30 PRINT ""
-40 PRINT "Example:"
-50 PRINT "FOR I = 1 TO 10"
-60 PRINT "  PRINT I"
-70 PRINT "NEXT I"`;
+      return saved || `10 print "Welcome to GWBASIC Interpreter!"
+20 print "Type your program and click RUN"
+30 print ""
+40 print "Example:"
+50 for i = 1 to 10
+60   print i
+70 next i
+80 print ""
+90 print "Try LINT (F7) then AUTO-FIX!"`;
     } catch {
-      return `10 PRINT "Welcome to GWBASIC Interpreter!"
-20 PRINT "Type your program and click RUN"
-30 PRINT ""
-40 PRINT "Example:"
-50 PRINT "FOR I = 1 TO 10"
-60 PRINT "  PRINT I"
-70 PRINT "NEXT I"`;
+      return `10 print "Welcome to GWBASIC Interpreter!"
+20 print "Type your program and click RUN"
+30 print ""
+40 print "Example:"
+50 for i = 1 to 10
+60   print i
+70 next i
+80 print ""
+90 print "Try LINT (F7) then AUTO-FIX!"`;
     }
   });
   
@@ -51,8 +85,26 @@ export default function Home() {
   const [inputColor, setInputColor] = useState('#AAAAAA');
   const inputQueueRef = useRef<InputRequest[]>([]);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [lintResult, setLintResult] = useState<LintResult | null>(null);
+  const [showLintPanel, setShowLintPanel] = useState(false);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [liveLintSummary, setLiveLintSummary] = useState<{ errors: number; warnings: number; infos: number }>({ errors: 0, warnings: 0, infos: 0 });
+  const [lintLines, setLintLines] = useState<Map<number, LintWarning>>(new Map());
   const interpreterRef = useRef<GWBASICInterpreter | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
+  const lintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Close tools menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(e.target as Node)) {
+        setToolsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Persist code to localStorage
   const handleCodeChange = useCallback((newCode: string) => {
@@ -64,6 +116,34 @@ export default function Home() {
     }
   }, []);
 
+  // Debounced live linting (800ms after last keystroke)
+  useEffect(() => {
+    if (lintTimerRef.current) {
+      clearTimeout(lintTimerRef.current);
+    }
+    lintTimerRef.current = setTimeout(() => {
+      const result = lint(code);
+      setLiveLintSummary({
+        errors: result.warnings.filter(w => w.type === 'error').length,
+        warnings: result.warnings.filter(w => w.type === 'warning').length,
+        infos: result.warnings.filter(w => w.type === 'info').length,
+      });
+      // Build a map of line -> first warning per line (for editor highlighting)
+      const lineMap = new Map<number, LintWarning>();
+      for (const w of result.warnings) {
+        if (w.type === 'error' || w.type === 'warning') {
+          if (!lineMap.has(w.line)) {
+            lineMap.set(w.line, w);
+          }
+        }
+      }
+      setLintLines(lineMap);
+    }, 800);
+    return () => {
+      if (lintTimerRef.current) clearTimeout(lintTimerRef.current);
+    };
+  }, [code]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -74,6 +154,14 @@ export default function Home() {
       if (e.key === 'F1') {
         e.preventDefault();
         setHelpOpen(prev => !prev);
+      }
+      if (e.key === 'F6') {
+        e.preventDefault();
+        if (!isRunning) handleRenumber();
+      }
+      if (e.key === 'F7') {
+        e.preventDefault();
+        handleLint();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -160,6 +248,8 @@ export default function Home() {
     setBuffer(undefined);
     setStatus('ready');
     setCode('');
+    setLiveLintSummary({ errors: 0, warnings: 0, infos: 0 });
+    setLintLines(new Map());
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -201,6 +291,53 @@ export default function Home() {
     e.target.value = '';
   };
 
+  const handleRenumber = useCallback(() => {
+    const result = renumber(code, 10, 10);
+    if (result.success) {
+      handleCodeChange(result.code);
+      setStatus('ready');
+    }
+  }, [code, handleCodeChange]);
+
+  const handleSortAndRenumber = useCallback(() => {
+    const result = sortAndRenumber(code, 10, 10);
+    if (result.success) {
+      handleCodeChange(result.code);
+      setStatus('ready');
+    }
+  }, [code, handleCodeChange]);
+
+  const handleLint = useCallback(() => {
+    const result = lint(code);
+    setLintResult(result);
+    setShowLintPanel(true);
+  }, [code]);
+
+  const handleAutoFix = useCallback(() => {
+    const result = autoFix(code);
+    if (result.fixes > 0) {
+      handleCodeChange(result.code);
+      // Re-run lint after fixes
+      const lintResult = lint(result.code);
+      setLintResult(lintResult);
+    }
+  }, [code, handleCodeChange]);
+
+  const handleScrollToLine = useCallback((line: number) => {
+    // Focus a hidden textarea to allow navigation; use the editor's internal mechanism
+    const highlightEl = document.getElementById('editor-highlight');
+    const textarea = document.querySelector('textarea');
+    if (textarea) {
+      // Calculate approximate scroll position: each line ~ 1.5em * 14px = 21px
+      const lineHeight = 21;
+      const targetScroll = Math.max(0, (line - 1) * lineHeight - 100);
+      textarea.scrollTop = targetScroll;
+      if (highlightEl) highlightEl.scrollTop = targetScroll;
+      // Briefly highlight the line
+      textarea.focus();
+    }
+  }, []);
+
   const handleInput = useCallback((input: string) => {
     const queue = inputQueueRef.current;
     if (queue.length > 0) {
@@ -215,6 +352,16 @@ export default function Home() {
       }
     }
   }, []);
+
+  // Build lint badge text
+  const lintBadge = (() => {
+    const { errors, warnings } = liveLintSummary;
+    if (errors === 0 && warnings === 0) return null;
+    const parts: string[] = [];
+    if (errors > 0) parts.push(`ERR:${errors}`);
+    if (warnings > 0) parts.push(`WARN:${warnings}`);
+    return parts.join(' ');
+  })();
 
   return (
     <div
@@ -246,7 +393,7 @@ export default function Home() {
             {status === 'ready' && <span style={{ color: '#006600', fontSize: '12px', border: '1px solid #006600', padding: '2px 6px' }}>READY</span>}
           </h1>
           <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#006600' }}>
-            Authentic BASIC Language Emulator — F5: Run | F1: Help
+            Authentic BASIC Language Emulator — F5: Run | F6: Renumber | F7: Lint | F1: Help
           </p>
         </div>
 
@@ -305,57 +452,73 @@ export default function Home() {
             ✕ CLEAR
           </button>
 
-          <button
-            onClick={handleExport}
-            disabled={isRunning}
-            style={{
-              backgroundColor: '#006600',
-              color: '#00FF00',
-              border: '1px solid #00FF00',
-              padding: '8px 16px',
-              fontFamily: '"IBM Plex Mono", monospace',
-              fontWeight: 'bold',
-              cursor: isRunning ? 'not-allowed' : 'pointer',
-              opacity: isRunning ? 0.5 : 1,
-              transition: 'all 0.1s',
-            }}
-          >
-            💾 EXPORT
-          </button>
+          {/* Tools dropdown menu */}
+          <div ref={toolsMenuRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setToolsMenuOpen(prev => !prev)}
+              disabled={isRunning}
+              style={{
+                backgroundColor: '#0A0A0A',
+                color: '#00FF00',
+                border: '1px solid #00FF00',
+                padding: '8px 12px',
+                fontFamily: '"IBM Plex Mono", monospace',
+                fontWeight: 'bold',
+                cursor: isRunning ? 'not-allowed' : 'pointer',
+                opacity: isRunning ? 0.5 : 1,
+                transition: 'all 0.1s',
+              }}
+            >
+              ☰ TOOLS ▾
+            </button>
 
-          <button
-            onClick={handleImport}
-            disabled={isRunning}
-            style={{
-              backgroundColor: '#006600',
-              color: '#00FF00',
-              border: '1px solid #00FF00',
-              padding: '8px 16px',
-              fontFamily: '"IBM Plex Mono", monospace',
-              fontWeight: 'bold',
-              cursor: isRunning ? 'not-allowed' : 'pointer',
-              opacity: isRunning ? 0.5 : 1,
-              transition: 'all 0.1s',
-            }}
-          >
-            📂 IMPORT
-          </button>
-
-          <button
-            onClick={() => setHelpOpen(true)}
-            style={{
-              backgroundColor: '#006600',
-              color: '#00FF00',
-              border: '1px solid #00FF00',
-              padding: '8px 16px',
-              fontFamily: '"IBM Plex Mono", monospace',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              transition: 'all 0.1s',
-            }}
-          >
-            ? HELP
-          </button>
+            {toolsMenuOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '4px',
+                  backgroundColor: '#0A0A0A',
+                  border: '1px solid #00FF00',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
+                  zIndex: 1000,
+                  minWidth: '200px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <ToolsMenuItem
+                  label="▲ LINT (F7)"
+                  onClick={() => { handleLint(); setToolsMenuOpen(false); }}
+                  accent
+                />
+                <ToolsMenuItem
+                  label="✨ AUTO-FIX"
+                  onClick={() => { handleAutoFix(); setToolsMenuOpen(false); }}
+                  accent
+                />
+                <ToolsMenuItem
+                  label="# RENUMBER (F6)"
+                  onClick={() => { handleRenumber(); setToolsMenuOpen(false); }}
+                />
+                <div style={{ height: '1px', backgroundColor: '#006600' }} />
+                <ToolsMenuItem
+                  label="💾 EXPORT"
+                  onClick={() => { handleExport(); setToolsMenuOpen(false); }}
+                />
+                <ToolsMenuItem
+                  label="📂 IMPORT"
+                  onClick={() => { handleImport(); setToolsMenuOpen(false); }}
+                />
+                <div style={{ height: '1px', backgroundColor: '#006600' }} />
+                <ToolsMenuItem
+                  label="? HELP (F1)"
+                  onClick={() => { setHelpOpen(true); setToolsMenuOpen(false); }}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -377,9 +540,26 @@ export default function Home() {
               borderBottom: '1px solid #00FF00',
               fontSize: '12px',
               color: '#006600',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
             }}
           >
-            EDITOR
+            <span>EDITOR</span>
+            {lintBadge && (
+              <span
+                style={{
+                  color: liveLintSummary.errors > 0 ? '#FF5555' : '#FFAA00',
+                  fontWeight: 'bold',
+                  fontSize: '10px',
+                  border: liveLintSummary.errors > 0 ? '1px solid #FF5555' : '1px solid #FFAA00',
+                  padding: '1px 6px',
+                }}
+                title="Live lint issues"
+              >
+                ⚠ {lintBadge}
+              </span>
+            )}
           </div>
           <div style={{ flex: 1, overflow: 'hidden' }}>
             <Editor code={code} onChange={handleCodeChange} />
@@ -456,6 +636,98 @@ export default function Home() {
           </button>
         ))}
       </footer>
+
+      {/* Lint results panel */}
+      {showLintPanel && lintResult && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '68px',
+            right: '16px',
+            width: '480px',
+            maxHeight: '320px',
+            backgroundColor: '#0A0A0A',
+            border: `2px solid ${lintResult.success ? '#00FF00' : '#FFAA00'}`,
+            borderRadius: '4px',
+            padding: '12px',
+            zIndex: 100,
+            overflow: 'auto',
+            fontFamily: '"IBM Plex Mono", monospace',
+            fontSize: '12px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+          }}
+        >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid #006600', paddingBottom: '6px' }}>
+            <span style={{ color: lintResult.success ? '#00FF00' : '#FFAA00', fontWeight: 'bold' }}>
+              {lintResult.success ? '✓ LINT PASSED' : '✗ LINT ISSUES'}
+            </span>
+            <span style={{ color: '#006600' }}>{lintResult.summary}</span>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              {lintResult.warnings.length > 0 && (
+                <button
+                  onClick={handleAutoFix}
+                  style={{
+                    backgroundColor: '#003300',
+                    color: '#00FF00',
+                    border: '1px solid #00FF00',
+                    padding: '2px 8px',
+                    cursor: 'pointer',
+                    fontFamily: '"IBM Plex Mono", monospace',
+                    fontSize: '11px',
+                  }}
+                >
+                  ✨ AUTO-FIX
+                </button>
+              )}
+              <button
+                onClick={() => setShowLintPanel(false)}
+                style={{
+                  backgroundColor: 'transparent',
+                  color: '#00FF00',
+                  border: '1px solid #006600',
+                  padding: '2px 8px',
+                  cursor: 'pointer',
+                  fontFamily: '"IBM Plex Mono", monospace',
+                  fontSize: '11px',
+                }}
+              >
+                ✕ CLOSE
+              </button>
+            </div>
+          </div>
+          {lintResult.warnings.length === 0 ? (
+            <div style={{ color: '#006600', padding: '8px 0' }}>No issues found in your code.</div>
+          ) : (
+            <div>
+              {lintResult.warnings.map((w, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => handleScrollToLine(w.line)}
+                  style={{
+                    padding: '4px 6px',
+                    margin: '2px 0',
+                    backgroundColor: w.type === 'error' ? '#1A0000' : w.type === 'warning' ? '#1A1A00' : '#001A00',
+                    borderLeft: `3px solid ${w.type === 'error' ? '#FF5555' : w.type === 'warning' ? '#FFAA00' : '#00FF00'}`,
+                    color: w.type === 'error' ? '#FF5555' : w.type === 'warning' ? '#FFAA00' : '#00AA00',
+                    fontSize: '11px',
+                    lineHeight: '1.4',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={(e) => { (e.target as HTMLDivElement).style.backgroundColor = '#002200'; }}
+                  onMouseLeave={(e) => {
+                    (e.target as HTMLDivElement).style.backgroundColor = w.type === 'error' ? '#1A0000' : w.type === 'warning' ? '#1A1A00' : '#001A00';
+                  }}
+                >
+                  <span style={{ fontWeight: 'bold' }}>
+                    {w.code ? `[${w.code}] ` : ''}Line {w.line}:
+                  </span>{' '}
+                  {w.message}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <HelpPanel isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
 
