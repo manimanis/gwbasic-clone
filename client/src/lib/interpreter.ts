@@ -170,6 +170,11 @@ export class GWBASICInterpreter {
     }
   }
 
+  /** BASIC is case-insensitive: normalize variable names to uppercase */
+  private normalizeVar(name: string): string {
+    return name.toUpperCase();
+  }
+
   public initializeBuiltins(): void {
     this.variables.set('PI', { type: 'number', value: Math.PI });
   }
@@ -384,10 +389,12 @@ export class GWBASICInterpreter {
   }
 
   private executeSwapStatement(stmt: SwapStatement): void {
-    const val1 = this.variables.get(stmt.var1) || { type: 'number', value: 0 };
-    const val2 = this.variables.get(stmt.var2) || { type: 'number', value: 0 };
-    this.variables.set(stmt.var1, val2);
-    this.variables.set(stmt.var2, val1);
+    const v1 = this.normalizeVar(stmt.var1);
+    const v2 = this.normalizeVar(stmt.var2);
+    const val1 = this.variables.get(v1) || { type: 'number', value: 0 };
+    const val2 = this.variables.get(v2) || { type: 'number', value: 0 };
+    this.variables.set(v1, val2);
+    this.variables.set(v2, val1);
   }
 
   private async executeDoLoopStatement(stmt: DoLoopStatement): Promise<void> {
@@ -504,13 +511,14 @@ export class GWBASICInterpreter {
     this.emitBuffer();
     const values = input.split(',');
     for (let i = 0; i < stmt.variables.length && i < values.length; i++) {
-      const varName = stmt.variables[i];
+      const rawName = stmt.variables[i];
+      const varName = this.normalizeVar(rawName);
       const rawValue = values[i].trim();
-      const varType = this.getVariableType(varName);
+      const varType = this.getVariableType(rawName);
       if (varType === 'number') {
         const numValue = parseFloat(rawValue);
         if (isNaN(numValue)) {
-          throw new Error(`?Redo from start (expected number for ${varName})`);
+          throw new Error(`?Redo from start (expected number for ${rawName})`);
         }
         this.variables.set(varName, { type: 'number', value: numValue });
       } else {
@@ -544,7 +552,7 @@ export class GWBASICInterpreter {
     this.emitBuffer();
     // Assign entire input (with commas) to first variable only
     if (stmt.variables.length > 0) {
-      const varName = stmt.variables[0];
+      const varName = this.normalizeVar(stmt.variables[0]);
       this.variables.set(varName, { type: 'string', value: input });
     }
   }
@@ -552,14 +560,14 @@ export class GWBASICInterpreter {
   private executeLetStatement(stmt: LetStatement): void {
     const value = this.evaluateExpression(stmt.value);
     if (typeof stmt.target === 'string') {
-      this.variables.set(stmt.target, value);
+      this.variables.set(this.normalizeVar(stmt.target), value);
     } else {
       const arrayAccess = stmt.target as ArrayAccess;
       const indices = arrayAccess.indices.map(idx => {
         const ev = this.evaluateExpression(idx);
         return typeof ev.value === 'number' ? Math.floor(ev.value) : 0;
       });
-      const arrayKey = `${arrayAccess.name}[${indices.join(',')}]`;
+      const arrayKey = `${this.normalizeVar(arrayAccess.name)}[${indices.join(',')}]`;
       this.arrays.set(arrayKey, value);
     }
   }
@@ -589,6 +597,7 @@ export class GWBASICInterpreter {
     if (step === 0) throw new Error('FOR loop step cannot be zero');
     const maxCount = Math.abs(end - start) + 2;
     let count = 0;
+    const loopVar = this.normalizeVar(stmt.variable);
     for (let i = start; (step > 0 ? i <= end : i >= end); i += step) {
       count++;
       if (count > maxCount || count > MAX_ITERATIONS) {
@@ -598,7 +607,7 @@ export class GWBASICInterpreter {
       if (this.iterationCount > MAX_ITERATIONS) {
         throw new Error('Program exceeded maximum iteration limit');
       }
-      this.variables.set(stmt.variable, { type: 'number', value: i });
+      this.variables.set(loopVar, { type: 'number', value: i });
       for (const s of stmt.body) {
         await this.executeStatement(s);
       }
@@ -643,7 +652,7 @@ export class GWBASICInterpreter {
         const ev = this.evaluateExpression(d);
         return typeof ev.value === 'number' ? Math.floor(ev.value) : 0;
       });
-      this.arrays.set(arr.name, { type: 'array', value: { dimensions, data: {} } });
+      this.arrays.set(this.normalizeVar(arr.name), { type: 'array', value: { dimensions, data: {} } });
     }
   }
 
@@ -654,9 +663,10 @@ export class GWBASICInterpreter {
   }
 
   private executeReadStatement(stmt: ReadStatement): void {
-    for (const varName of stmt.variables) {
+    for (const rawName of stmt.variables) {
       if (this.dataIndex < this.dataValues.length) {
         const value = this.dataValues[this.dataIndex++];
+        const varName = this.normalizeVar(rawName);
         if (typeof value === 'number') {
           this.variables.set(varName, { type: 'number', value });
         } else {
@@ -725,8 +735,8 @@ export class GWBASICInterpreter {
   }
 
   private executeEraseStatement(stmt: EraseStatement): void {
-    for (const varName of stmt.variables) {
-      this.arrays.delete(varName);
+    for (const rawName of stmt.variables) {
+      this.arrays.delete(this.normalizeVar(rawName));
     }
   }
 
@@ -765,7 +775,7 @@ export class GWBASICInterpreter {
       case 'StringLiteral':
         return { type: 'string', value: (expr as StringLiteral).value };
       case 'Identifier': {
-        const varName = (expr as Identifier).name;
+        const varName = this.normalizeVar((expr as Identifier).name);
         return this.variables.get(varName) || { type: 'number', value: 0 };
       }
       case 'BinaryOp':
@@ -1101,7 +1111,7 @@ export class GWBASICInterpreter {
             const def = JSON.parse(funcDef.value as string);
             const savedVars = new Map(this.variables);
             for (let i = 0; i < def.params.length && i < args.length; i++) {
-              this.variables.set(def.params[i], args[i]);
+              this.variables.set(this.normalizeVar(def.params[i]), args[i]);
             }
             const result = this.evaluateExpression(def.body);
             this.variables = savedVars;
@@ -1139,7 +1149,7 @@ export class GWBASICInterpreter {
       const ev = this.evaluateExpression(idx);
       return typeof ev.value === 'number' ? Math.floor(ev.value) : 0;
     });
-    const arrayKey = `${expr.name}[${indices.join(',')}]`;
+    const arrayKey = `${this.normalizeVar(expr.name)}[${indices.join(',')}]`;
     const stored = this.arrays.get(arrayKey);
     return stored || { type: 'number', value: 0 };
   }

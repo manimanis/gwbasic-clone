@@ -355,6 +355,33 @@ npm run check
 npm run format
 ```
 
+### Déploiement Apache/XAMPP
+```bash
+# Construire les fichiers statiques pour Apache
+npm run build:apache
+```
+
+Les fichiers compilés seront dans `dist/public/`. Pour servir via Apache :
+
+**Option 1 : Accès direct via le dossier du projet**
+Si le projet est dans `htdocs/`, accédez à :
+```
+http://localhost/gwbasic-clone/dist/public/
+```
+
+**Option 2 : Copier vers un sous-dossier Apache**
+Copiez le contenu de `dist/public/` vers un dossier Apache :
+```bash
+# Windows (XAMPP)
+xcopy /E /I dist\public C:\xampp\htdocs\gwbasic
+
+# Linux/Mac
+cp -r dist/public /var/www/html/gwbasic
+```
+Puis accédez à `http://localhost/gwbasic/`
+
+**Note** : Le fichier `.htaccess` est inclus automatiquement dans le build pour le routage SPA et l'optimisation (cache, compression, sécurité).
+
 ## Utilisation
 
 ### Démarrage

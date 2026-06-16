@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build && esbuild server/index.ts --platform=node --bundle --format=esm --outdir=dist",
+    "build:apache": "vite build && node -e \"const fs=require('fs'),p=require('path');const s=p.join('dist','public'),d='public';if(fs.existsSync(d))fs.rmSync(d,{recursive:true});fs.mkdirSync(d,{recursive:true});fs.readdirSync(s,{withFileTypes:true}).forEach(f=>{if(f.name==='.htaccess')return;const src=p.join(s,f.name),dst=p.join(d,f.name);if(f.isDirectory())fs.cpSync(src,dst,{recursive:true});else fs.copyFileSync(src,dst);});console.log('Copied to public/');\"",
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
