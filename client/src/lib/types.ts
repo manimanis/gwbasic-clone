@@ -160,6 +160,7 @@ export interface Token {
 export interface ASTNode {
   type: string;
   line?: number;
+  col?: number;
 }
 
 export interface Program extends ASTNode {
@@ -250,7 +251,6 @@ export interface ForStatement extends Statement {
   start: Expression;
   end: Expression;
   step?: Expression;
-  body: Statement[];
 }
 
 export interface WhileStatement extends Statement {

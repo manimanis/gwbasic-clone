@@ -100,6 +100,16 @@ export class GWBASICInterpreter {
   private pc: number = 0;
   private statements: Statement[] = [];
   private labels: Map<number, number> = new Map();
+  private loopStack: Array<{
+    forPc: number;
+    nextPc: number;
+    loopVar: string;
+    start: number;
+    end: number;
+    step: number;
+    count: number;
+    maxCount: number;
+  }> = [];
   private running: boolean = false;
   private abortController: AbortController | null = null;
   private inputCallback?: (prompt: string) => Promise<string>;
@@ -438,6 +448,7 @@ export class GWBASICInterpreter {
         this.clearBuffer();
         break;
       case 'NextStatement':
+        this.executeNextStatement(stmt);
         break;
       case 'WendStatement':
         break;
@@ -684,30 +695,103 @@ export class GWBASICInterpreter {
   private async executeForStatement(stmt: ForStatement): Promise<void> {
     const startEval = this.evaluateExpression(stmt.start);
     const endEval = this.evaluateExpression(stmt.end);
-    const start = typeof startEval.value === 'number' ? Math.floor(startEval.value) : 0;
-    const end = typeof endEval.value === 'number' ? Math.floor(endEval.value) : 0;
+    const start = typeof startEval.value === 'number' ? startEval.value : 0;
+    const end = typeof endEval.value === 'number' ? endEval.value : 0;
     const step = stmt.step ? (() => {
       const s = this.evaluateExpression(stmt.step!);
-      return typeof s.value === 'number' ? Math.floor(s.value) : 1;
+      return typeof s.value === 'number' ? s.value : 1;
     })() : 1;
     if (step === 0) throw new Error('FOR loop step cannot be zero');
-    const maxCount = Math.abs(end - start) + 2;
-    let count = 0;
     const loopVar = this.normalizeVar(stmt.variable);
-    for (let i = start; (step > 0 ? i <= end : i >= end); i += step) {
-      count++;
-      if (count > maxCount || count > MAX_ITERATIONS) {
-        throw new Error('FOR loop exceeded maximum iterations');
+    
+    // Check if we're looping back (loop state already exists from a previous iteration)
+    // This happens when NEXT jumps back to the FOR statement
+    const existingState = this.loopStack.find(ls => ls.forPc === this.pc);
+    if (existingState) {
+      // This is a loop-back jump; don't re-initialize the variable
+      // The main loop will pc++ to the next statement (the body)
+      return;
+    }
+    
+    // Find the matching NEXT statement
+    const forPc = this.pc;
+    let nextPc = -1;
+    let depth = 0;
+    for (let i = forPc + 1; i < this.statements.length; i++) {
+      const s = this.statements[i];
+      if (s.type === 'ForStatement') {
+        depth++;
+      } else if (s.type === 'NextStatement') {
+        if (depth === 0) {
+          nextPc = i;
+          break;
+        } else {
+          depth--;
+        }
       }
-      this.iterationCount++;
-      if (this.iterationCount > MAX_ITERATIONS) {
-        throw new Error('Program exceeded maximum iteration limit');
-      }
-      this.variables.set(loopVar, { type: 'number', value: i });
-      for (const s of stmt.body) {
-        await this.executeStatement(s);
-        if (!this.running) return; // END, STOP, or EXIT was called
-      }
+    }
+    if (nextPc === -1) {
+      throw new Error('FOR without NEXT');
+    }
+    
+    // Initialize the loop variable to the start value
+    this.variables.set(loopVar, { type: 'number', value: start });
+    
+    // Check if the loop should execute at all
+    // For positive step: loop runs while var <= end
+    // For negative step: loop runs while var >= end
+    const shouldExecute = step > 0 ? start <= end : start >= end;
+    if (!shouldExecute) {
+      // Skip the entire loop: jump to the NEXT statement
+      // The main loop's pc++ will advance past NEXT
+      this.pc = nextPc;
+      return;
+    }
+    
+    // Store loop info so NEXT can find it
+    this.loopStack.push({
+      forPc,
+      nextPc,
+      loopVar,
+      start,
+      end,
+      step,
+      count: 0,
+      maxCount: 0
+    });
+  }
+  
+  private async executeNextStatement(_stmt: any): Promise<void> {
+    // Find the loop state from the loop stack (LIFO - last pushed FOR)
+    // The most recent FOR loop is the one we need to iterate
+    const loopState = this.loopStack[this.loopStack.length - 1];
+    if (!loopState) {
+      throw new Error('NEXT without FOR');
+    }
+    
+    // Get current value of the loop variable
+    const currentValue = this.variables.get(loopState.loopVar) || { type: 'number', value: 0 };
+    const currentNum = typeof currentValue.value === 'number' ? currentValue.value : 0;
+    
+    // Increment loop variable: I = I + step
+    const nextValue = currentNum + loopState.step;
+    this.variables.set(loopState.loopVar, { type: 'number', value: nextValue });
+    
+    // Check if loop should continue
+    // For positive step: continue while nextValue <= end
+    // For negative step: continue while nextValue >= end
+    const shouldContinue = loopState.step > 0 
+      ? nextValue <= loopState.end 
+      : nextValue >= loopState.end;
+    
+    if (shouldContinue) {
+      // Jump back to the FOR statement
+      // The main loop will then pc++ to the statement after FOR (the body)
+      this.pc = loopState.forPc;
+    } else {
+      // Loop finished: remove from stack, continue past NEXT
+      this.loopStack.pop();
+      // Don't change pc - let main loop continue to next statement
     }
   }
 

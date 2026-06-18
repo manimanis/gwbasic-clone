@@ -49,8 +49,10 @@ describe('Parser', () => {
     const tokens = lexer.tokenize();
     const parser = new Parser(tokens);
     const ast = parser.parse();
-    expect(ast.statements.length).toBe(1);
+    expect(ast.statements.length).toBe(3);
     expect(ast.statements[0].type).toBe('ForStatement');
+    expect(ast.statements[1].type).toBe('PrintStatement');
+    expect(ast.statements[2].type).toBe('NextStatement');
   });
 
   it('parses WHILE loop', () => {

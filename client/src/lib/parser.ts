@@ -98,6 +98,7 @@ export class Parser {
       
       // Capture optional GWBASIC line numbers (e.g., "10 PRINT", "20 GOTO 60")
       let lineNumber: number | undefined;
+      let lineColumn: number | undefined;
       if (this.currentToken().type === TokenType.NUMBER && this.peekToken().type !== TokenType.EOF) {
         const peek = this.peekToken();
         // A line number is a number followed by a statement keyword or an identifier (assignment)
@@ -109,15 +110,56 @@ export class Parser {
           TokenType.CLS, TokenType.RANDOMIZE, TokenType.IDENTIFIER,
         ].includes(peek.type);
         if (isLineNumber) {
-          lineNumber = this.advance().value as number;
+          const lineToken = this.advance();
+          lineNumber = lineToken.value as number;
+          lineColumn = lineToken.column;
         }
       }
       
-      const stmt = this.parseStatement();
-      if (stmt) {
-        stmt.line = lineNumber;
-        statements.push(stmt);
+      // Parse all statements on this line (separated by colons)
+      // Special handling for loop constructs (FOR, WHILE, DO) which need to parse their own bodies
+      const isLoopConstruct = [TokenType.FOR, TokenType.WHILE, TokenType.DO].includes(this.currentToken().type);
+      
+      while (this.currentToken().type !== TokenType.EOF && this.currentToken().type !== TokenType.NEWLINE) {
+        // Capture the starting position of this statement BEFORE parsing
+        // If we have a line number, skip it to get the actual statement start position
+        let stmtStartToken = this.currentToken();
+        let stmtLine = lineNumber !== undefined ? lineNumber : stmtStartToken.line;
+        let stmtCol = stmtStartToken.column;
+        
+        // If the current token is a line number, skip it to get the real statement start
+        if (lineNumber !== undefined && stmtStartToken.type === TokenType.NUMBER) {
+          this.advance(); // skip the line number
+          stmtStartToken = this.currentToken();
+          stmtCol = stmtStartToken.column;
+        }
+        
+        const stmt = this.parseStatement();
+        if (stmt) {
+          stmt.line = stmtLine;
+          // Only set col if not already set by the statement parser
+          if (stmt.col === undefined) {
+            stmt.col = stmtCol;
+          }
+          statements.push(stmt);
+          
+          // If this is a loop construct, it has already parsed its body, so break
+          if (isLoopConstruct) {
+            break;
+          }
+        }
+        
+        // Check if there's a colon indicating another statement on the same line
+        if (this.currentToken().type === TokenType.COLON) {
+          this.advance(); // consume the colon
+          this.skipNewlines(); // skip any newlines after colon
+          // Continue the loop to parse the next statement on the same line
+        } else {
+          break;
+        }
       }
+      
+      // Skip remaining newlines and colons at end of line
       while (this.currentToken().type === TokenType.NEWLINE || this.currentToken().type === TokenType.COLON) {
         this.advance();
       }
@@ -297,50 +339,15 @@ export class Parser {
     const end = this.parseExpression();
     let step: Expression | undefined;
     if (this.currentToken().type === TokenType.STEP) { this.advance(); step = this.parseExpression(); }
+    
+    // Skip colons and newlines after FOR header - body statements will be parsed by main loop
     this.skipNewlines();
-    const body: Statement[] = [];
-    while (this.currentToken().type !== TokenType.NEXT && this.currentToken().type !== TokenType.EOF) {
-      // Capture line numbers in the loop body
-      let lineNumber: number | undefined;
-      if (this.currentToken().type === TokenType.NUMBER && this.peekToken().type !== TokenType.EOF) {
-        const peek = this.peekToken();
-        const isLineNumber = [
-          TokenType.PRINT, TokenType.INPUT, TokenType.LET, TokenType.IF, TokenType.FOR,
-          TokenType.WHILE, TokenType.GOSUB, TokenType.RETURN, TokenType.GOTO, TokenType.END,
-          TokenType.DIM, TokenType.DATA, TokenType.READ, TokenType.RESTORE, TokenType.REM,
-          TokenType.CLS, TokenType.RANDOMIZE, TokenType.IDENTIFIER,
-        ].includes(peek.type);
-        if (isLineNumber) {
-          lineNumber = this.advance().value as number;
-        }
-      }
-      const s = this.parseStatement();
-      if (s) {
-        s.line = lineNumber;
-        body.push(s);
-      }
-      this.skipNewlines();
-      while (this.currentToken().type === TokenType.COLON) this.advance();
-      this.skipNewlines();
-    }
-    // Handle NEXT: if the next token is NEXT and the variable name matches (or there's a standalone NEXT),
-    // consume it. For "NEXT J, I", if we're the inner loop (variable = "J"), consume only "NEXT J"
-    // and leave the ", I" part for the outer loop.
-    if (this.currentToken().type === TokenType.NEXT) {
+    while (this.currentToken().type === TokenType.COLON) {
       this.advance();
-      // Check if variable name matches or it's a bare NEXT
-      if (this.currentToken().type === TokenType.IDENTIFIER) {
-        const nextVar = this.currentToken().value as string;
-        if (nextVar.toUpperCase() === variable.toUpperCase()) {
-          // This NEXT matches our variable → consume it
-          this.advance();
-          // Stop at comma - don't consume NEXT I, leave for outer loop
-        }
-        // If variable name doesn't match (e.g., outer loop sees NEXT I but expects J),
-        // don't consume anything - it will be handled elsewhere
-      }
     }
-    return { type: 'ForStatement', variable, start, end, step, body };
+    this.skipNewlines();
+    
+    return { type: 'ForStatement', variable, start, end, step };
   }
 
   private parseWhileStatement(): WhileStatement {
