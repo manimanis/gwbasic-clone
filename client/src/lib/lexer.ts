@@ -83,6 +83,12 @@ export class Lexer {
       }
     }
 
+    // Handle GWBASIC type suffixes: # for double, ! for single, % for integer
+    if (this.currentChar() === '#' || this.currentChar() === '!' || this.currentChar() === '%') {
+      numStr += this.currentChar();
+      this.advance();
+    }
+
     return {
       type: TokenType.NUMBER,
       value: parseFloat(numStr),
@@ -167,8 +173,8 @@ export class Lexer {
         continue;
       }
 
-      // Numbers
-      if (/[0-9]/.test(this.currentChar())) {
+      // Numbers (including those starting with . like .96)
+      if (/[0-9.]/.test(this.currentChar())) {
         this.tokens.push(this.readNumber());
         continue;
       }
@@ -275,6 +281,10 @@ export class Lexer {
           break;
         case '!':
           this.tokens.push({ type: TokenType.EXCLAIM, value: '!', line, column });
+          this.advance();
+          break;
+        case '.':
+          this.tokens.push({ type: TokenType.DOT, value: '.', line, column });
           this.advance();
           break;
         case '\n':

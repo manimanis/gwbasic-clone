@@ -45,7 +45,7 @@ import {
   type SelectCaseStatement,
 } from './types';
 
-const MAX_ITERATIONS = 100000;
+const MAX_ITERATIONS = 1000000;
 const SCREEN_WIDTH = 80;
 const SCREEN_HEIGHT = 25;
 
@@ -68,6 +68,16 @@ export interface OutputLine {
   color?: string;
   indent?: number;
 }
+
+export interface StepInfo {
+  lineNumber: number | undefined;
+  statementType: string;
+  variables: Array<{ name: string; value: string; type: string }>;
+  statements: Statement[];
+  currentIndex: number;
+}
+
+export type StepCallback = (info: StepInfo, resume: () => void) => void;
 
 function makeCell(char: string, fg: string, bg: string): TerminalCell {
   return { char, fg, bg };
@@ -94,6 +104,9 @@ export class GWBASICInterpreter {
   private abortController: AbortController | null = null;
   private inputCallback?: (prompt: string) => Promise<string>;
   private onOutputCallback?: (buffer: TerminalCell[][], cursorX: number, cursorY: number, fgHex: string) => void;
+  private stepCallback: StepCallback | null = null;
+  private stepResolve: (() => void) | null = null;
+  private stepMode: boolean = false;
   private cursorX: number = 0;
   private cursorY: number = 0;
   private currentFg: number = 7;
@@ -184,6 +197,36 @@ export class GWBASICInterpreter {
       this.abortController.abort();
       this.running = false;
     }
+    if (this.stepResolve) {
+      this.stepResolve();
+      this.stepResolve = null;
+    }
+  }
+
+  public enableStepMode(enabled: boolean): void {
+    this.stepMode = enabled;
+  }
+
+  public setStepCallback(callback: StepCallback): void {
+    this.stepCallback = callback;
+  }
+
+  public continueExecution(): void {
+    if (this.stepResolve) {
+      this.stepResolve();
+      this.stepResolve = null;
+    }
+  }
+
+  public getVariables(): Array<{ name: string; value: string; type: string }> {
+    const vars: Array<{ name: string; value: string; type: string }> = [];
+    this.variables.forEach((val, key) => {
+      if (!key.startsWith('FN_')) {
+        vars.push({ name: key, value: this.valueToString(val), type: val.type });
+      }
+    });
+    vars.sort((a, b) => a.name.localeCompare(b.name));
+    return vars;
   }
 
   public isRunning(): boolean {
@@ -239,16 +282,40 @@ export class GWBASICInterpreter {
     this.dataValues = [];
     this.dataIndex = 0;
     this.currentPrintLine = '';
+    this.cursorX = 0;
+    this.cursorY = 0;
+    this.currentFg = 7;
+    this.currentBg = 0;
     this.initBuffer();
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
 
     this.labels.clear();
-    for (let i = 0; i < this.statements.length; i++) {
-      const stmt = this.statements[i];
+    // Recursively collect all statements with line numbers, including nested ones
+    const collectLineNumbers = (stmt: Statement, index: number) => {
       if (stmt.line !== undefined) {
-        this.labels.set(stmt.line, i);
+        this.labels.set(stmt.line, index);
       }
+      // Recursively process nested statements
+      if ('body' in stmt && Array.isArray((stmt as any).body)) {
+        (stmt as any).body.forEach((subStmt: Statement) => {
+          collectLineNumbers(subStmt, index);
+        });
+      }
+      if ('thenBranch' in stmt && Array.isArray((stmt as any).thenBranch)) {
+        (stmt as any).thenBranch.forEach((subStmt: Statement) => {
+          collectLineNumbers(subStmt, index);
+        });
+      }
+      if ('elseBranch' in stmt && Array.isArray((stmt as any).elseBranch)) {
+        (stmt as any).elseBranch.forEach((subStmt: Statement) => {
+          collectLineNumbers(subStmt, index);
+        });
+      }
+    };
+    
+    for (let i = 0; i < this.statements.length; i++) {
+      collectLineNumbers(this.statements[i], i);
     }
 
     for (const stmt of this.statements) {
@@ -269,6 +336,32 @@ export class GWBASICInterpreter {
           break;
         }
         const stmt = this.statements[this.pc];
+        
+        // Step mode: pause before executing the statement
+        if (this.stepMode && this.stepCallback) {
+          const lineNumber = stmt.line;
+          await new Promise<void>((resolve) => {
+            this.stepResolve = resolve;
+            const cb = this.stepCallback;
+            if (cb) {
+              cb({
+                lineNumber,
+                statementType: stmt.type,
+                variables: this.getVariables(),
+                statements: this.statements,
+                currentIndex: this.pc,
+              }, () => {
+                if (this.stepResolve) {
+                  this.stepResolve();
+                  this.stepResolve = null;
+                }
+              });
+            }
+          });
+          // Check if we were aborted during the pause
+          if (!this.running) break;
+        }
+        
         await this.executeStatement(stmt);
         this.pc++;
       }
@@ -384,6 +477,9 @@ export class GWBASICInterpreter {
         break;
       case 'SelectCaseStatement':
         await this.executeSelectCaseStatement(stmt as SelectCaseStatement);
+        break;
+      case 'MidAssignStatement':
+        this.executeMidAssignStatement(stmt as any);
         break;
     }
   }
@@ -610,6 +706,7 @@ export class GWBASICInterpreter {
       this.variables.set(loopVar, { type: 'number', value: i });
       for (const s of stmt.body) {
         await this.executeStatement(s);
+        if (!this.running) return; // END, STOP, or EXIT was called
       }
     }
   }
@@ -627,6 +724,7 @@ export class GWBASICInterpreter {
       }
       for (const s of stmt.body) {
         await this.executeStatement(s);
+        if (!this.running) return; // END, STOP, or EXIT was called
       }
     }
   }
@@ -746,6 +844,33 @@ export class GWBASICInterpreter {
       type: 'string',
       value: JSON.stringify({ params: stmt.params, body: stmt.body })
     });
+  }
+
+  private executeMidAssignStatement(stmt: any): void {
+    const stringVar = this.normalizeVar(stmt.stringVar);
+    const start = Math.floor(this.toNumber(this.evaluateExpression(stmt.start)));
+    const length = Math.floor(this.toNumber(this.evaluateExpression(stmt.length)));
+    const value = this.evaluateExpression(stmt.value);
+    
+    // Get the current string value
+    const currentStr = this.variables.get(stringVar) || { type: 'string', value: '' };
+    let str = this.valueToString(currentStr);
+    
+    // Convert value to string
+    const newValue = this.valueToString(value);
+    
+    // MID$ assignment: replace characters starting at position 'start' (1-based in BASIC)
+    // with 'newValue' for 'length' characters
+    const pos = start - 1; // Convert to 0-based
+    if (pos < 0) return; // Invalid position
+    
+    // Build the new string
+    const before = str.substring(0, pos);
+    const after = str.substring(pos + length);
+    str = before + newValue + after;
+    
+    // Store the modified string
+    this.variables.set(stringVar, { type: 'string', value: str });
   }
 
   private async executeSelectCaseStatement(stmt: SelectCaseStatement): Promise<void> {
@@ -930,7 +1055,7 @@ export class GWBASICInterpreter {
       case 'LTRIM$': return { type: 'string', value: this.getStringArg(args, 0).replace(/^\s+/, '') };
       case 'RTRIM$': return { type: 'string', value: this.getStringArg(args, 0).replace(/\s+$/, '') };
       case 'SPACE$': return { type: 'string', value: ' '.repeat(this.getNumericArg(args, 0)) };
-      case 'STRING$': return { type: 'string', value: String.fromCharCode(this.getNumericArg(args, 1)).repeat(this.getNumericArg(args, 0)) };
+      case 'STRING$': return { type: 'string', value: this.getStringArg(args, 1).repeat(this.getNumericArg(args, 0)) };
       case 'HEX$': return { type: 'string', value: Math.floor(this.getNumericArg(args, 0)).toString(16).toUpperCase() };
       case 'OCT$': return { type: 'string', value: Math.floor(this.getNumericArg(args, 0)).toString(8) };
       case 'REPEAT$': return { type: 'string', value: this.getStringArg(args, 0).repeat(Math.floor(this.getNumericArg(args, 1))) };

@@ -1,4 +1,3 @@
-
 /**
  * GWBASIC Parser - Parses tokens into an Abstract Syntax Tree (AST)
  */
@@ -43,6 +42,7 @@ import {
   type EraseStatement,
   type DefFnStatement,
   type SelectCaseStatement,
+  type MidAssignStatement,
 } from './types';
 import { GWBASIC_FUNCTIONS, GWBASIC_NOARG_FUNCTIONS } from '@shared/gwbasic-constants';
 
@@ -300,9 +300,28 @@ export class Parser {
     this.skipNewlines();
     const body: Statement[] = [];
     while (this.currentToken().type !== TokenType.NEXT && this.currentToken().type !== TokenType.EOF) {
+      // Capture line numbers in the loop body
+      let lineNumber: number | undefined;
+      if (this.currentToken().type === TokenType.NUMBER && this.peekToken().type !== TokenType.EOF) {
+        const peek = this.peekToken();
+        const isLineNumber = [
+          TokenType.PRINT, TokenType.INPUT, TokenType.LET, TokenType.IF, TokenType.FOR,
+          TokenType.WHILE, TokenType.GOSUB, TokenType.RETURN, TokenType.GOTO, TokenType.END,
+          TokenType.DIM, TokenType.DATA, TokenType.READ, TokenType.RESTORE, TokenType.REM,
+          TokenType.CLS, TokenType.RANDOMIZE, TokenType.IDENTIFIER,
+        ].includes(peek.type);
+        if (isLineNumber) {
+          lineNumber = this.advance().value as number;
+        }
+      }
       const s = this.parseStatement();
-      if (s) body.push(s);
-      while (this.currentToken().type === TokenType.NEWLINE || this.currentToken().type === TokenType.COLON) this.advance();
+      if (s) {
+        s.line = lineNumber;
+        body.push(s);
+      }
+      this.skipNewlines();
+      while (this.currentToken().type === TokenType.COLON) this.advance();
+      this.skipNewlines();
     }
     // Handle NEXT: if the next token is NEXT and the variable name matches (or there's a standalone NEXT),
     // consume it. For "NEXT J, I", if we're the inner loop (variable = "J"), consume only "NEXT J"
@@ -647,22 +666,45 @@ export class Parser {
       while (this.currentToken().type === TokenType.COMMA) { this.advance(); indices.push(this.parseExpression()); }
       this.expect(TokenType.RPAREN);
       if (this.currentToken().type === TokenType.ASSIGN) {
+        // Check if this is a MID$ assignment: MID$(string, start, length) = value
+        if (name.toUpperCase() === 'MID$') {
+          this.advance();
+          const value = this.parseExpression();
+          // Extract the string variable name from the first argument (should be an Identifier)
+          const stringVarExpr = indices[0];
+          let stringVarName = '';
+          if (stringVarExpr.type === 'Identifier' && 'name' in stringVarExpr) {
+            stringVarName = (stringVarExpr as Identifier).name;
+          } else if (stringVarExpr.type === 'ArrayAccess' && 'name' in stringVarExpr) {
+            stringVarName = (stringVarExpr as ArrayAccess).name;
+          }
+          return { type: 'MidAssignStatement', stringVar: stringVarName, start: indices[1], length: indices[2], value } as MidAssignStatement;
+        }
         this.advance();
         const value = this.parseExpression();
         return { type: 'LetStatement', target: { type: 'ArrayAccess', name, indices } as ArrayAccess, value } as LetStatement;
       }
+      // If we have identifier(...) without ASSIGN, it's a function call or array access - not a statement
+      this.position -= indices.length + 3; // Backtrack
+      return null;
     }
     if (this.currentToken().type === TokenType.ASSIGN) {
       this.advance();
       const value = this.parseExpression();
       return { type: 'LetStatement', target: name, value } as LetStatement;
     }
-    if (this.currentToken().type === TokenType.LPAREN) {
-      this.position--;
-      this.parseExpression();
-      return null;
-    }
     return null;
+  }
+
+  private parseMidAssignStatement(stringVar: string): MidAssignStatement {
+    this.expect(TokenType.LPAREN);
+    const start = this.parseExpression();
+    this.expect(TokenType.COMMA);
+    const length = this.parseExpression();
+    this.expect(TokenType.RPAREN);
+    this.expect(TokenType.ASSIGN);
+    const value = this.parseExpression();
+    return { type: 'MidAssignStatement', stringVar, start, length, value };
   }
 
   private parseExpression(): Expression { return this.parseLogicalOr(); }

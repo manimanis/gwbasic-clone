@@ -336,6 +336,11 @@ describe('GWBASICInterpreter', () => {
     expect(output[0]).toBe('hello');
   });
 
+  it('supports STRING$ function', async () => {
+    const output = await runProgram('PRINT STRING$(5, "A")');
+    expect(output[0]).toBe('AAAAA');
+  });
+
   // ────────────── Math Functions ──────────────
 
   it('supports ABS function', async () => {

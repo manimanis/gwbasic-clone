@@ -138,6 +138,7 @@ export enum TokenType {
   DOLLAR = 'DOLLAR',
   PERCENT = 'PERCENT',
   EXCLAIM = 'EXCLAIM',
+  DOT = 'DOT',
   
   // Special
   NEWLINE = 'NEWLINE',
@@ -403,6 +404,14 @@ export interface CaseElseStatement extends Statement {
 
 export interface EndSelectStatement extends Statement {
   type: 'EndSelectStatement';
+}
+
+export interface MidAssignStatement extends Statement {
+  type: 'MidAssignStatement';
+  stringVar: string;
+  start: Expression;
+  length: Expression;
+  value: Expression;
 }
 
 // ============================================================================

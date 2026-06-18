@@ -39,4 +39,4 @@ export type {
 
 export { Lexer } from './lexer';
 export { Parser } from './parser';
-export { GWBASICInterpreter, type TerminalCell } from './interpreter';
+export { GWBASICInterpreter, type TerminalCell, type StepInfo, type StepCallback } from './interpreter';

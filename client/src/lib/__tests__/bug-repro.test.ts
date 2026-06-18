@@ -87,6 +87,7 @@ describe('Bug fixes - RANDOMIZE and INPUT ordering', () => {
     const ast = parser.parse();
     
     // Verify all statements are parsed with correct line numbers
+    // Line 80 has colon-separated statements: PRINT and END (END is in IF's thenBranch)
     expect(ast.statements.length).toBe(10);
     expect(ast.statements[0].line).toBe(10);
     expect(ast.statements[1].line).toBe(20);
