@@ -110,6 +110,10 @@ export class GWBASICInterpreter {
     count: number;
     maxCount: number;
   }> = [];
+  private whileStack: Array<{
+    whilePc: number;
+    wendPc: number;
+  }> = [];
   private running: boolean = false;
   private abortController: AbortController | null = null;
   private inputCallback?: (prompt: string) => Promise<string>;
@@ -392,7 +396,7 @@ export class GWBASICInterpreter {
       const currentLine = this.pc < this.statements.length
         ? (this.statements[this.pc].line || this.pc + 1)
         : this.pc + 1;
-      this.writeString(`ERROR at line ${currentLine}: ${errMsg}`);
+      this.writeString(`Error line ${currentLine}: ${errMsg}`);
     } finally {
       // Flush pending PRINT
       if (this.currentPrintLine.length > 0) {
@@ -463,6 +467,7 @@ export class GWBASICInterpreter {
         this.executeNextStatement(stmt);
         break;
       case 'WendStatement':
+        this.executeWendStatement();
         break;
       case 'SwapStatement':
         this.executeSwapStatement(stmt as SwapStatement);
@@ -773,7 +778,7 @@ export class GWBASICInterpreter {
     });
   }
   
-  private async executeNextStatement(_stmt: any): Promise<void> {
+  private executeNextStatement(_stmt: any): void {
     // Find the loop state from the loop stack (LIFO - last pushed FOR)
     // The most recent FOR loop is the one we need to iterate
     const loopState = this.loopStack[this.loopStack.length - 1];
@@ -809,21 +814,66 @@ export class GWBASICInterpreter {
   }
 
   private async executeWhileStatement(stmt: WhileStatement): Promise<void> {
-    let count = 0;
-    while (this.isTruthy(this.evaluateExpression(stmt.condition))) {
-      count++;
-      if (count > MAX_ITERATIONS) {
-        throw new Error('WHILE loop exceeded maximum iterations');
+    const condition = this.evaluateExpression(stmt.condition);
+    
+    // Vérifier si on est déjà dans une boucle WHILE (rebouclage via WEND)
+    const existingState = this.whileStack.find(ws => ws.whilePc === this.pc);
+    if (existingState) {
+      // C'est un rebouclage via WEND, on re-évalue la condition
+      if (!this.isTruthy(condition)) {
+        // Condition fausse : sortir de la boucle, sauter jusqu'après WEND
+        this.pc = existingState.wendPc;
+        this.whileStack.pop();
+        return;
       }
-      this.iterationCount++;
-      if (this.iterationCount > MAX_ITERATIONS) {
-        throw new Error('Program exceeded maximum iteration limit');
+      // Condition vraie : continuer l'exécution séquentielle (pc++ dans la boucle principale)
+      return;
+    }
+    
+    // Première exécution de ce WHILE
+    if (!this.isTruthy(condition)) {
+      // Condition fausse dès le début : trouver le WEND correspondant et sauter après
+      let depth = 1;
+      for (let i = this.pc + 1; i < this.statements.length; i++) {
+        const s = this.statements[i];
+        if (s.type === 'WhileStatement') {
+          depth++;
+        } else if (s.type === 'WendStatement') {
+          depth--;
+          if (depth === 0) {
+            this.pc = i; // pc sera incrémenté après, donc on arrive juste après WEND
+            return;
+          }
+        }
       }
-      for (const s of stmt.body) {
-        await this.executeStatement(s);
-        if (!this.running) return; // END, STOP, or EXIT was called
+      throw new Error('WHILE without WEND');
+    }
+    
+    // Condition vraie : trouver le WEND correspondant et stocker l'info
+    let depth = 1;
+    for (let i = this.pc + 1; i < this.statements.length; i++) {
+      const s = this.statements[i];
+      if (s.type === 'WhileStatement') {
+        depth++;
+      } else if (s.type === 'WendStatement') {
+        depth--;
+        if (depth === 0) {
+          this.whileStack.push({ whilePc: this.pc, wendPc: i });
+          return;
+        }
       }
     }
+    throw new Error('WHILE without WEND');
+  }
+
+  private executeWendStatement(): void {
+    const whileState = this.whileStack[this.whileStack.length - 1];
+    if (!whileState) {
+      throw new Error('WEND without WHILE');
+    }
+    // Sauter en arrière au WHILE (pc sera incrémenté par la boucle principale)
+    // Sur le WHILE, on vérifiera la condition
+    this.pc = whileState.whilePc - 1;
   }
 
   private executeGosubStatement(stmt: GosubStatement): void {

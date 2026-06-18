@@ -108,6 +108,9 @@ export class Parser {
           TokenType.WHILE, TokenType.GOSUB, TokenType.RETURN, TokenType.GOTO, TokenType.END,
           TokenType.DIM, TokenType.DATA, TokenType.READ, TokenType.RESTORE, TokenType.REM,
           TokenType.CLS, TokenType.RANDOMIZE, TokenType.IDENTIFIER,
+          TokenType.NEXT, TokenType.WEND, TokenType.SWAP, TokenType.DO, TokenType.EXIT,
+          TokenType.ON, TokenType.WRITE, TokenType.LOCATE, TokenType.COLOR, TokenType.ERASE,
+          TokenType.DEF, TokenType.SELECT, TokenType.LINE,
         ].includes(peek.type);
         if (isLineNumber) {
           const lineToken = this.advance();
@@ -117,9 +120,6 @@ export class Parser {
       }
       
       // Parse all statements on this line (separated by colons)
-      // Special handling for loop constructs (FOR, WHILE, DO) which need to parse their own bodies
-      const isLoopConstruct = [TokenType.FOR, TokenType.WHILE, TokenType.DO].includes(this.currentToken().type);
-      
       while (this.currentToken().type !== TokenType.EOF && this.currentToken().type !== TokenType.NEWLINE) {
         // Capture the starting position of this statement BEFORE parsing
         // If we have a line number, skip it to get the actual statement start position
@@ -142,11 +142,6 @@ export class Parser {
             stmt.col = stmtCol;
           }
           statements.push(stmt);
-          
-          // If this is a loop construct, it has already parsed its body, so break
-          if (isLoopConstruct) {
-            break;
-          }
         }
         
         // Check if there's a colon indicating another statement on the same line
@@ -353,15 +348,10 @@ export class Parser {
   private parseWhileStatement(): WhileStatement {
     this.expect(TokenType.WHILE);
     const condition = this.parseExpression();
-    this.skipNewlines();
-    const body: Statement[] = [];
-    while (this.currentToken().type !== TokenType.WEND && this.currentToken().type !== TokenType.EOF) {
-      const s = this.parseStatement();
-      if (s) body.push(s);
-      this.skipNewlines();
-    }
-    this.expect(TokenType.WEND);
-    return { type: 'WhileStatement', condition, body };
+    // AST plat : WHILE ne consomme pas les instructions du corps
+    // Celles-ci seront parsées individuellement par la boucle principale
+    // jusqu'à ce qu'elle rencontre WEND
+    return { type: 'WhileStatement', condition };
   }
 
   private parseGosubStatement(): GosubStatement {

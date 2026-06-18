@@ -256,7 +256,6 @@ export interface ForStatement extends Statement {
 export interface WhileStatement extends Statement {
   type: 'WhileStatement';
   condition: Expression;
-  body: Statement[];
 }
 
 export interface GosubStatement extends Statement {

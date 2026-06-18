@@ -199,4 +199,22 @@ describe('Lissajou Program', () => {
     // Step 15: BEFORE NEXT I → I=2 (about to increment to 3, stop)
     expect(steps[15].vars.find(v => v.name === 'I')!.value).toBe('2');
   });
+
+  it('throws and error Next without For', async () => {
+    const code = '10 PRINT "Hello" : NEXT I : PRINT "DONE"';
+    const lexer = new Lexer(code);
+    const tokens = lexer.tokenize();
+    const parser = new Parser(tokens);
+    const ast = parser.parse();
+    const interpreter = new GWBASICInterpreter();
+
+    await interpreter.execute(ast);
+    const output = interpreter.getOutput();
+
+    // La méthode execute() attrape l'erreur dans son try/catch
+    // et l'écrit dans le buffer via writeString()
+    // Donc l'output doit contenir le message d'erreur formaté
+    expect(output[0]).toBe('Hello');
+    expect(output[1]).toBe('Error line 10: NEXT without FOR');
+  });
 });
