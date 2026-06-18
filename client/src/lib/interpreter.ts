@@ -307,7 +307,7 @@ export class GWBASICInterpreter {
     this.labels.clear();
     // Recursively collect all statements with line numbers, including nested ones
     const collectLineNumbers = (stmt: Statement, index: number) => {
-      if (stmt.line !== undefined) {
+      if (stmt.line !== undefined && !this.labels.has(stmt.line)) {
         this.labels.set(stmt.line, index);
       }
       // Recursively process nested statements
