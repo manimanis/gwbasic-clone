@@ -373,6 +373,18 @@ export class GWBASICInterpreter {
         }
         
         await this.executeStatement(stmt);
+        
+        // In step mode, emit the buffer after each statement so the UI
+        // can see the output (e.g. PRINT results) immediately
+        if (this.stepMode) {
+          // Flush pending PRINT output first
+          if (this.currentPrintLine.length > 0) {
+            this.writeString(this.currentPrintLine);
+            this.currentPrintLine = '';
+          }
+          this.emitBuffer();
+        }
+        
         this.pc++;
       }
     } catch (error) {
@@ -785,9 +797,10 @@ export class GWBASICInterpreter {
       : nextValue >= loopState.end;
     
     if (shouldContinue) {
-      // Jump back to the FOR statement
-      // The main loop will then pc++ to the statement after FOR (the body)
-      this.pc = loopState.forPc;
+      // Jump back to just before the FOR statement (pc - 1)
+      // The main loop will then pc++ to the FOR statement,
+      // where executeForStatement will detect it as a loop-back and skip re-init
+      this.pc = loopState.forPc - 1;
     } else {
       // Loop finished: remove from stack, continue past NEXT
       this.loopStack.pop();
