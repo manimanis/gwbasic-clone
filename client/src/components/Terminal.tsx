@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback, memo } from 'react';
+import { TextScreen } from '@/lib/screen';
 
 interface TerminalCell {
   char: string;
@@ -13,7 +14,7 @@ interface TerminalCell {
 }
 
 interface TerminalProps {
-  buffer?: TerminalCell[][];
+  screen?: TextScreen;
   onInput?: (input: string) => void;
   inputPrompt?: string | null;
   cursorX?: number;
@@ -22,7 +23,7 @@ interface TerminalProps {
 }
 
 const TerminalComponent: React.FC<TerminalProps> = ({
-  buffer,
+  screen,
   onInput,
   inputPrompt,
   cursorX = 0,
@@ -33,8 +34,16 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const [cursorVisible, setCursorVisible] = useState(true);
   const [inputBuffer, setInputBuffer] = useState('');
   const [cursorIndex, setCursorIndex] = useState(0);
+  const [updateCount, setUpdateCount] = useState(0);
 
   const inputMode = inputPrompt !== null && inputPrompt !== undefined;
+
+  // Register onUpdate callback to force re-render when screen content changes
+  useEffect(() => {
+    if (screen) {
+      screen.setOnUpdate(() => setUpdateCount(c => c + 1));
+    }
+  }, [screen]);
 
   // Reset input state when a new prompt appears
   useEffect(() => {
@@ -60,7 +69,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [buffer]);
+  }, [screen]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!inputMode) return;
@@ -89,22 +98,23 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   }, [inputMode, inputBuffer, cursorIndex, onInput]);
 
-  // Convert buffer rows to trimmed text lines for display
+  // Convert TextScreen to trimmed text lines for display
   const displayLines: TerminalCell[][] = React.useMemo(() => {
-    if (!buffer || buffer.length === 0) return [];
-    let lastRow = buffer.length - 1;
+    if (!screen) return [];
+    const terminalCells = screen.toTerminalCells();
+    let lastRow = terminalCells.length - 1;
     while (lastRow >= 0) {
-      const row = buffer[lastRow];
+      const row = terminalCells[lastRow];
       const text = row.map(c => c.char).join('').trim();
       if (text.length > 0) break;
       lastRow--;
     }
     const lines: TerminalCell[][] = [];
     for (let i = 0; i <= lastRow; i++) {
-      lines.push(buffer[i]);
+      lines.push(terminalCells[i]);
     }
     return lines;
-  }, [buffer]);
+  }, [screen, updateCount]);
 
   return (
     <div

@@ -9,7 +9,8 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Lexer, Parser, GWBASICInterpreter, TerminalCell, StepInfo } from '@/lib/gwbasic-interpreter';
+import { Lexer, Parser, GWBASICInterpreter, StepInfo } from '@/lib/gwbasic-interpreter';
+import { TextScreen } from '@/lib/screen';
 import { EXAMPLES } from '@/lib/examples';
 import { renumber, sortAndRenumber } from '@/lib/renumber';
 import { lint, type LintResult, type LintWarning } from '@/lib/linter';
@@ -166,7 +167,7 @@ export default function Home() {
     }
   });
   
-  const [buffer, setBuffer] = useState<TerminalCell[][] | undefined>(undefined);
+  const [screen, setScreen] = useState<TextScreen | undefined>(undefined);
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState<'ready' | 'running' | 'stopped'>('ready');
   const [currentInputPrompt, setCurrentInputPrompt] = useState<string | null>(null);
@@ -364,8 +365,12 @@ export default function Home() {
       const interpreter = new GWBASICInterpreter();
       interpreterRef.current = interpreter;
       interpreter.enableStepMode(true);
+      // Create screen once and reuse it; onUpdate will trigger re-renders
+      const runScreen = new TextScreen(80, 25);
+      runScreen.setOnUpdate(() => setScreen(runScreen));
+      setScreen(runScreen);
       interpreter.setOnOutputCallback((buf, cx, cy, fgHex) => {
-        setBuffer(buf.map(row => row.map(c => ({ ...c }))));
+        // Screen is already updated via onUpdate; just update cursor/color state
         setCursorPos({ x: cx, y: cy });
         if (fgHex) setInputColor(fgHex);
       });
@@ -390,7 +395,6 @@ export default function Home() {
         };
       });
       await interpreter.execute(ast);
-      setBuffer(interpreter.getBuffer().map(row => row.map(c => ({ ...c }))));
       setHighlightRange(null);
       setHighlightLine(null);
       setPaused(false);
@@ -401,18 +405,22 @@ export default function Home() {
         const line = interpreterRef.current.getCurrentLine();
         if (line >= 0) lineInfo = ` at line ${line}`;
       }
-      const errBuf = interpreterRef.current?.getBuffer();
-      if (errBuf) {
-        const newBuf = errBuf.map(row => row.map(c => ({ ...c })));
-        for (let y = 0; y < newBuf.length; y++) {
-          const text = newBuf[y].map(c => c.char).join('').trim();
+      const errScreen = interpreterRef.current?.getScreen();
+      if (errScreen) {
+        const newScreen = new TextScreen(80, 25);
+        const errBuf = errScreen.toTerminalCells();
+        for (let y = 0; y < errBuf.length; y++) {
+          const text = errBuf[y].map(c => c.char).join('').trim();
           if (text === '') {
             const msg = `ERROR${lineInfo}: ${errMsg}`;
-            for (let x = 0; x < msg.length && x < 80; x++) newBuf[y][x] = { char: msg[x], fg: '#FF5555', bg: '#000000' };
+            for (let x = 0; x < msg.length && x < 80; x++) {
+              newScreen.getCell(x, y).setCell(msg[x], 12, 0);
+            }
             break;
           }
         }
-        setBuffer(newBuf);
+        newScreen.setOnUpdate(() => setScreen(newScreen));
+        setScreen(newScreen);
       }
     } finally {
       setIsRunning(false);
@@ -439,8 +447,12 @@ export default function Home() {
       const ast = parser.parse();
       const interpreter = new GWBASICInterpreter();
       interpreterRef.current = interpreter;
+      // Create screen once and reuse it; onUpdate will trigger re-renders
+      const runScreen = new TextScreen(80, 25);
+      runScreen.setOnUpdate(() => setScreen(runScreen));
+      setScreen(runScreen);
       interpreter.setOnOutputCallback((buf, cx, cy, fgHex) => {
-        setBuffer(buf.map(row => row.map(c => ({ ...c }))));
+        // Screen is already updated via onUpdate; just update cursor/color state
         setCursorPos({ x: cx, y: cy });
         if (fgHex) setInputColor(fgHex);
       });
@@ -452,7 +464,6 @@ export default function Home() {
         });
       });
       await interpreter.execute(ast);
-      setBuffer(interpreter.getBuffer().map(row => row.map(c => ({ ...c }))));
     } catch (error) {
       const errMsg = String(error);
       let lineInfo = '';
@@ -460,18 +471,22 @@ export default function Home() {
         const line = interpreterRef.current.getCurrentLine();
         if (line >= 0) lineInfo = ` at line ${line}`;
       }
-      const errBuf = interpreterRef.current?.getBuffer();
-      if (errBuf) {
-        const newBuf = errBuf.map(row => row.map(c => ({ ...c })));
-        for (let y = 0; y < newBuf.length; y++) {
-          const text = newBuf[y].map(c => c.char).join('').trim();
+      const errScreen = interpreterRef.current?.getScreen();
+      if (errScreen) {
+        const newScreen = new TextScreen(80, 25);
+        const errBuf = errScreen.toTerminalCells();
+        for (let y = 0; y < errBuf.length; y++) {
+          const text = errBuf[y].map(c => c.char).join('').trim();
           if (text === '') {
             const msg = `ERROR${lineInfo}: ${errMsg}`;
-            for (let x = 0; x < msg.length && x < 80; x++) newBuf[y][x] = { char: msg[x], fg: '#FF5555', bg: '#000000' };
+            for (let x = 0; x < msg.length && x < 80; x++) {
+              newScreen.getCell(x, y).setCell(msg[x], 12, 0);
+            }
             break;
           }
         }
-        setBuffer(newBuf);
+        newScreen.setOnUpdate(() => setScreen(newScreen));
+        setScreen(newScreen);
       }
     } finally {
       setIsRunning(false);
@@ -490,7 +505,7 @@ export default function Home() {
   };
 
   const handleClear = () => {
-    setBuffer(undefined);
+    setScreen(undefined);
     setStatus('ready');
     setCode('');
     setLiveLintSummary({ errors: 0, warnings: 0, infos: 0 });
@@ -607,7 +622,7 @@ export default function Home() {
                 <div style={{ height: '1px', backgroundColor: '#006600' }} />
                 <button onClick={() => { setShowVariables(!showVariables); setToolsMenuOpen(false); }} style={{ width: '100%', textAlign: 'left', backgroundColor: '#001A00', color: '#00FF00', border: 'none', borderBottom: '1px solid #002200', padding: '10px 14px', fontFamily: '"IBM Plex Mono", monospace', fontSize: '13px', cursor: 'pointer' }}>{showVariables ? '&#128269; HIDE VARIABLES' : '&#128269; SHOW VARIABLES'}</button>
                 <div style={{ height: '1px', backgroundColor: '#006600' }} />
-                <button onClick={() => { setHelpOpen(true); setToolsMenuOpen(false); }} style={{ width: '100%', textAlign: 'left', backgroundColor: '#001A00', color: '#00FF00', border: 'none', padding: '10px 14px', fontFamily: '"IBM Plex Mono", monospace', fontSize: '13px', cursor: 'pointer' }}>? HELP (F1)</button>
+                <button onClick={() => { setHelpOpen(true); setToolsMenuOpen(false); }} style={{ width: '100%', textAlign: 'left', backgroundColor: '#001A00', color: '#00FF00', border: 'none', borderBottom: '1px solid #002200', padding: '10px 14px', fontFamily: '"IBM Plex Mono", monospace', fontSize: '13px', cursor: 'pointer' }}>? HELP (F1)</button>
               </div>
             )}
           </div>
@@ -630,7 +645,7 @@ export default function Home() {
         <div style={{ flex: '0 0 50%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ backgroundColor: '#0A0A0A', padding: '8px 12px', borderBottom: '1px solid #00FF00', fontSize: '12px', color: '#006600' }}>OUTPUT</div>
           <div style={{ flex: 1, overflow: 'hidden' }}>
-            <Terminal buffer={buffer} onInput={handleInput} inputPrompt={currentInputPrompt} cursorX={cursorPos.x} cursorY={cursorPos.y} inputColor={inputColor} />
+            <Terminal screen={screen} onInput={handleInput} inputPrompt={currentInputPrompt} cursorX={cursorPos.x} cursorY={cursorPos.y} inputColor={inputColor} />
           </div>
         </div>
       </div>

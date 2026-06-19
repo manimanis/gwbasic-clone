@@ -44,6 +44,7 @@ import {
   type DefFnStatement,
   type SelectCaseStatement,
 } from './types';
+import { TextScreen } from './screen';
 
 const MAX_ITERATIONS = 1000000;
 const SCREEN_WIDTH = 80;
@@ -91,6 +92,10 @@ function cloneBuffer(buf: TerminalCell[][]): TerminalCell[][] {
   return buf.map(row => row.map(c => ({ ...c })));
 }
 
+function screenToTerminalCells(screen: TextScreen): TerminalCell[][] {
+  return screen.toTerminalCells();
+}
+
 export class GWBASICInterpreter {
   private variables: Map<string, RuntimeValue> = new Map();
   private arrays: Map<string, RuntimeValue> = new Map();
@@ -121,80 +126,46 @@ export class GWBASICInterpreter {
   private stepCallback: StepCallback | null = null;
   private stepResolve: (() => void) | null = null;
   private stepMode: boolean = false;
-  private cursorX: number = 0;
-  private cursorY: number = 0;
+  private iterationCount: number = 0;
   private currentFg: number = 7;
   private currentBg: number = 0;
-  private iterationCount: number = 0;
-  private buffer: TerminalCell[][] = [];
+  private screen: TextScreen = new TextScreen(SCREEN_WIDTH, SCREEN_HEIGHT);
   private currentPrintLine: string = '';
 
   constructor() {
-    this.initBuffer();
+    this.screen = new TextScreen(SCREEN_WIDTH, SCREEN_HEIGHT);
   }
 
   private initBuffer(): void {
-    const fg = GWBASIC_COLORS[7];
-    const bg = GWBASIC_COLORS[0];
-    this.buffer = Array.from({ length: SCREEN_HEIGHT }, () => emptyRow(fg, bg));
+    this.screen = new TextScreen(SCREEN_WIDTH, SCREEN_HEIGHT);
   }
 
   private clearBuffer(): void {
-    this.initBuffer();
-    this.cursorX = 0;
-    this.cursorY = 0;
-  }
-
-  private getFgColor(): string {
-    return GWBASIC_COLORS[this.currentFg] || GWBASIC_COLORS[7];
-  }
-
-  private getBgColor(): string {
-    return GWBASIC_COLORS[this.currentBg] || GWBASIC_COLORS[0];
-  }
-
-  private writeChar(ch: string): void {
-    if (this.cursorY >= 0 && this.cursorY < SCREEN_HEIGHT &&
-        this.cursorX >= 0 && this.cursorX < SCREEN_WIDTH) {
-      this.buffer[this.cursorY][this.cursorX] = makeCell(ch, this.getFgColor(), this.getBgColor());
-    }
-    this.cursorX++;
-    if (this.cursorX >= SCREEN_WIDTH) {
-      this.cursorX = 0;
-      this.cursorY++;
-      if (this.cursorY >= SCREEN_HEIGHT) {
-        this.scrollUp();
-        this.cursorY = SCREEN_HEIGHT - 1;
-      }
-    }
-  }
-
-  private writeString(str: string): void {
-    for (const ch of str) {
-      if (ch === '\n') {
-        this.cursorX = 0;
-        this.cursorY++;
-        if (this.cursorY >= SCREEN_HEIGHT) {
-          this.scrollUp();
-          this.cursorY = SCREEN_HEIGHT - 1;
-        }
-      } else {
-        this.writeChar(ch);
-      }
-    }
+    this.screen.clear();
   }
 
   private scrollUp(): void {
-    const fg = this.getFgColor();
-    const bg = this.getBgColor();
-    this.buffer.shift();
-    this.buffer.push(emptyRow(fg, bg));
+    this.screen = new TextScreen(SCREEN_WIDTH, SCREEN_HEIGHT);
+    // Copy rows 1..height-1 up by one
+    for (let y = 0; y < SCREEN_HEIGHT - 1; y++) {
+      for (let x = 0; x < SCREEN_WIDTH; x++) {
+        const src = this.screen.getCell(x, y + 1);
+        const dst = this.screen.getCell(x, y);
+        dst.setCell(src.getChar(), src.getForeColor(), src.getBackColor());
+      }
+    }
+    // Clear last row
+    for (let x = 0; x < SCREEN_WIDTH; x++) {
+      this.screen.getCell(x, SCREEN_HEIGHT - 1).setCell(' ', this.currentFg, this.currentBg);
+    }
   }
 
-  private ensureOutputLine(): void {
-    while (this.cursorY >= this.buffer.length) {
-      this.buffer.push(emptyRow(this.getFgColor(), this.getBgColor()));
-    }
+  private writeChar(ch: string): void {
+    this.screen.addChar(ch);
+  }
+
+  private writeString(str: string): void {
+    this.screen.addString(str);
   }
 
   /** BASIC is case-insensitive: normalize variable names to uppercase */
@@ -261,11 +232,13 @@ export class GWBASICInterpreter {
 
   /** Returns output as string lines for backward compatibility with tests */
   public getOutput(): string[] {
+    const terminalBuf = this.screen.toTerminalCells();
     const lines: string[] = [];
-    for (const row of this.buffer) {
+    for (const row of terminalBuf) {
       let line = '';
       for (const cell of row) {
-        line += cell.char;
+        // Convert null chars to spaces for proper text output
+        line += cell.char === '\0' ? ' ' : cell.char;
       }
       // Trim trailing spaces (buffer rows are 80 chars wide)
       lines.push(line.replace(/\s+$/, ''));
@@ -279,12 +252,19 @@ export class GWBASICInterpreter {
 
   /** Returns the raw terminal cell buffer */
   public getBuffer(): TerminalCell[][] {
-    return this.buffer;
+    return this.screen.toTerminalCells();
+  }
+
+  /** Returns the internal TextScreen instance */
+  public getScreen(): TextScreen {
+    return this.screen;
   }
 
   private emitBuffer(): void {
     if (this.onOutputCallback) {
-      this.onOutputCallback(cloneBuffer(this.buffer), this.cursorX, this.cursorY, this.getFgColor());
+      this.onOutputCallback(cloneBuffer(this.screen.toTerminalCells()),
+        this.screen.getCursorX(), this.screen.getCursorY(),
+        GWBASIC_COLORS[this.screen.getForegroundColor()] || GWBASIC_COLORS[0]);
     }
   }
 
@@ -296,10 +276,6 @@ export class GWBASICInterpreter {
     this.dataValues = [];
     this.dataIndex = 0;
     this.currentPrintLine = '';
-    this.cursorX = 0;
-    this.cursorY = 0;
-    this.currentFg = 7;
-    this.currentBg = 0;
     this.initBuffer();
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
@@ -327,7 +303,7 @@ export class GWBASICInterpreter {
         });
       }
     };
-    
+
     for (let i = 0; i < this.statements.length; i++) {
       collectLineNumbers(this.statements[i], i);
     }
@@ -350,7 +326,7 @@ export class GWBASICInterpreter {
           break;
         }
         const stmt = this.statements[this.pc];
-        
+
         // Step mode: pause before executing the statement
         if (this.stepMode && this.stepCallback) {
           const lineNumber = stmt.line;
@@ -375,9 +351,9 @@ export class GWBASICInterpreter {
           // Check if we were aborted during the pause
           if (!this.running) break;
         }
-        
+
         await this.executeStatement(stmt);
-        
+
         // In step mode, emit the buffer after each statement so the UI
         // can see the output (e.g. PRINT results) immediately
         if (this.stepMode) {
@@ -388,7 +364,7 @@ export class GWBASICInterpreter {
           }
           this.emitBuffer();
         }
-        
+
         this.pc++;
       }
     } catch (error) {
@@ -576,11 +552,12 @@ export class GWBASICInterpreter {
       this.writeString(this.currentPrintLine);
       this.currentPrintLine = '';
       // Move to beginning of next line
-      this.cursorX = 0;
-      this.cursorY++;
-      if (this.cursorY >= SCREEN_HEIGHT) {
+      const y = this.screen.getCursorY();
+      if (y >= SCREEN_HEIGHT - 1) {
         this.scrollUp();
-        this.cursorY = SCREEN_HEIGHT - 1;
+        this.screen.setCursor(0, SCREEN_HEIGHT - 1);
+      } else {
+        this.screen.setCursor(0, y + 1);
       }
     }
   }
@@ -625,13 +602,6 @@ export class GWBASICInterpreter {
     for (const ch of input) {
       this.writeChar(ch);
     }
-    // Move cursor to next line after input
-    this.cursorX = 0;
-    this.cursorY++;
-    if (this.cursorY >= SCREEN_HEIGHT) {
-      this.scrollUp();
-      this.cursorY = SCREEN_HEIGHT - 1;
-    }
     this.emitBuffer();
     const values = input.split(',');
     for (let i = 0; i < stmt.variables.length && i < values.length; i++) {
@@ -666,12 +636,6 @@ export class GWBASICInterpreter {
     const input = await this.inputCallback(prompt);
     for (const ch of input) {
       this.writeChar(ch);
-    }
-    this.cursorX = 0;
-    this.cursorY++;
-    if (this.cursorY >= SCREEN_HEIGHT) {
-      this.scrollUp();
-      this.cursorY = SCREEN_HEIGHT - 1;
     }
     this.emitBuffer();
     // Assign entire input (with commas) to first variable only
@@ -720,7 +684,7 @@ export class GWBASICInterpreter {
     })() : 1;
     if (step === 0) throw new Error('FOR loop step cannot be zero');
     const loopVar = this.normalizeVar(stmt.variable);
-    
+
     // Check if we're looping back (loop state already exists from a previous iteration)
     // This happens when NEXT jumps back to the FOR statement
     const existingState = this.loopStack.find(ls => ls.forPc === this.pc);
@@ -729,7 +693,7 @@ export class GWBASICInterpreter {
       // The main loop will pc++ to the next statement (the body)
       return;
     }
-    
+
     // Find the matching NEXT statement
     const forPc = this.pc;
     let nextPc = -1;
@@ -750,10 +714,10 @@ export class GWBASICInterpreter {
     if (nextPc === -1) {
       throw new Error('FOR without NEXT');
     }
-    
+
     // Initialize the loop variable to the start value
     this.variables.set(loopVar, { type: 'number', value: start });
-    
+
     // Check if the loop should execute at all
     // For positive step: loop runs while var <= end
     // For negative step: loop runs while var >= end
@@ -764,7 +728,7 @@ export class GWBASICInterpreter {
       this.pc = nextPc;
       return;
     }
-    
+
     // Store loop info so NEXT can find it
     this.loopStack.push({
       forPc,
@@ -777,7 +741,7 @@ export class GWBASICInterpreter {
       maxCount: 0
     });
   }
-  
+
   private executeNextStatement(_stmt: any): void {
     // Find the loop state from the loop stack (LIFO - last pushed FOR)
     // The most recent FOR loop is the one we need to iterate
@@ -785,22 +749,22 @@ export class GWBASICInterpreter {
     if (!loopState) {
       throw new Error('NEXT without FOR');
     }
-    
+
     // Get current value of the loop variable
     const currentValue = this.variables.get(loopState.loopVar) || { type: 'number', value: 0 };
     const currentNum = typeof currentValue.value === 'number' ? currentValue.value : 0;
-    
+
     // Increment loop variable: I = I + step
     const nextValue = currentNum + loopState.step;
     this.variables.set(loopState.loopVar, { type: 'number', value: nextValue });
-    
+
     // Check if loop should continue
     // For positive step: continue while nextValue <= end
     // For negative step: continue while nextValue >= end
-    const shouldContinue = loopState.step > 0 
-      ? nextValue <= loopState.end 
+    const shouldContinue = loopState.step > 0
+      ? nextValue <= loopState.end
       : nextValue >= loopState.end;
-    
+
     if (shouldContinue) {
       // Jump back to just before the FOR statement (pc - 1)
       // The main loop will then pc++ to the FOR statement,
@@ -815,7 +779,7 @@ export class GWBASICInterpreter {
 
   private async executeWhileStatement(stmt: WhileStatement): Promise<void> {
     const condition = this.evaluateExpression(stmt.condition);
-    
+
     // Vérifier si on est déjà dans une boucle WHILE (rebouclage via WEND)
     const existingState = this.whileStack.find(ws => ws.whilePc === this.pc);
     if (existingState) {
@@ -829,7 +793,7 @@ export class GWBASICInterpreter {
       // Condition vraie : continuer l'exécution séquentielle (pc++ dans la boucle principale)
       return;
     }
-    
+
     // Première exécution de ce WHILE
     if (!this.isTruthy(condition)) {
       // Condition fausse dès le début : trouver le WEND correspondant et sauter après
@@ -848,7 +812,7 @@ export class GWBASICInterpreter {
       }
       throw new Error('WHILE without WEND');
     }
-    
+
     // Condition vraie : trouver le WEND correspondant et stocker l'info
     let depth = 1;
     for (let i = this.pc + 1; i < this.statements.length; i++) {
@@ -955,27 +919,32 @@ export class GWBASICInterpreter {
     }
     if (line.length > 2) line = line.slice(0, -2);
     this.writeString(line);
-    this.cursorX = 0;
-    this.cursorY++;
-    if (this.cursorY >= SCREEN_HEIGHT) {
-      this.scrollUp();
-      this.cursorY = SCREEN_HEIGHT - 1;
-    }
   }
 
   private executeLocateStatement(stmt: LocateStatement): void {
     const row = Math.floor(this.toNumber(this.evaluateExpression(stmt.row)));
     const col = stmt.column ? Math.floor(this.toNumber(this.evaluateExpression(stmt.column))) : 1;
-    this.cursorY = Math.max(0, Math.min(SCREEN_HEIGHT - 1, row - 1));
-    this.cursorX = Math.max(0, Math.min(SCREEN_WIDTH - 1, col - 1));
+
+    const newY = Math.max(0, Math.min(SCREEN_HEIGHT - 1, row - 1));
+    const newX = Math.max(0, Math.min(SCREEN_WIDTH - 1, col - 1));
+
+    // Fill skipped cells with spaces for proper indentation
+    const curY = this.screen.getCursorY();
+    const curX = this.screen.getCursorX();
+    if (curY === newY && curX < newX) {
+      for (let x = curX; x < newX; x++) {
+        this.screen.getCell(x, curY).setCell(' ', this.currentFg, this.currentBg);
+      }
+    }
+    this.screen.setCursor(newX, newY);
   }
 
   private executeColorStatement(stmt: ColorStatement): void {
     if (stmt.foreground) {
-      this.currentFg = Math.floor(this.toNumber(this.evaluateExpression(stmt.foreground)));
+      this.screen.setColor(Math.floor(this.toNumber(this.evaluateExpression(stmt.foreground))), this.screen.getBackgroundColor());
     }
     if (stmt.background) {
-      this.currentBg = Math.floor(this.toNumber(this.evaluateExpression(stmt.background)));
+      this.screen.setColor(this.screen.getForegroundColor(), Math.floor(this.toNumber(this.evaluateExpression(stmt.background))));
     }
   }
 
@@ -998,24 +967,24 @@ export class GWBASICInterpreter {
     const start = Math.floor(this.toNumber(this.evaluateExpression(stmt.start)));
     const length = Math.floor(this.toNumber(this.evaluateExpression(stmt.length)));
     const value = this.evaluateExpression(stmt.value);
-    
+
     // Get the current string value
     const currentStr = this.variables.get(stringVar) || { type: 'string', value: '' };
     let str = this.valueToString(currentStr);
-    
+
     // Convert value to string
     const newValue = this.valueToString(value);
-    
+
     // MID$ assignment: replace characters starting at position 'start' (1-based in BASIC)
     // with 'newValue' for 'length' characters
     const pos = start - 1; // Convert to 0-based
     if (pos < 0) return; // Invalid position
-    
+
     // Build the new string
     const before = str.substring(0, pos);
     const after = str.substring(pos + length);
     str = before + newValue + after;
-    
+
     // Store the modified string
     this.variables.set(stringVar, { type: 'string', value: str });
   }
